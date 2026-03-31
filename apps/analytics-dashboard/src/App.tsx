@@ -1,8 +1,9 @@
 import {
   startTransition,
   useDeferredValue,
+  useEffect,
+  useEffectEvent,
   useState,
-  type FormEvent,
 } from "react";
 import {
   deriveIdentityFromSlip39,
@@ -54,6 +55,32 @@ const METHOD_LABELS: Record<MethodFilter, string> = {
   lightning_address: "Lightning address",
   lightning_invoice: "Lightning invoice",
   unknown: "Unknown",
+};
+
+const AUTH_SESSION_STORAGE_KEY = "analytics-dashboard-slip39-seed";
+
+const readPersistedSeed = (): string => {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  return window.sessionStorage.getItem(AUTH_SESSION_STORAGE_KEY) ?? "";
+};
+
+const persistSeed = (seed: string): void => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.sessionStorage.setItem(AUTH_SESSION_STORAGE_KEY, seed);
+};
+
+const clearPersistedSeed = (): void => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.sessionStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
 };
 
 const formatTimestamp = (timestampMs: number): string => {
@@ -318,9 +345,35 @@ export default function App() {
     }
   }
 
-  async function submitLogin(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  const restoreSession = useEffectEvent(async () => {
+    const persistedSeed = readPersistedSeed();
+    if (!persistedSeed) {
+      return;
+    }
 
+    setSeedInput(persistedSeed);
+    setLoadPhase("authenticating");
+    setErrorMessage(null);
+
+    const restoredIdentity = await deriveIdentityFromSlip39(persistedSeed);
+    if (!restoredIdentity) {
+      clearPersistedSeed();
+      setSeedInput("");
+      setLoadPhase("idle");
+      setErrorMessage("Saved session could not be restored. Log in again.");
+      return;
+    }
+
+    setIdentity(restoredIdentity);
+    setProfile({ imageUrl: null, name: null });
+    await refreshTelemetry(restoredIdentity);
+  });
+
+  useEffect(() => {
+    void restoreSession();
+  }, []);
+
+  async function submitLogin() {
     const normalized = normalizeSlip39Seed(seedInput);
     setSeedInput(normalized);
 
@@ -347,12 +400,14 @@ export default function App() {
     }
 
     setIdentity(nextIdentity);
+    persistSeed(normalized);
     setProfile({ imageUrl: null, name: null });
     await refreshTelemetry(nextIdentity);
   }
 
   function handleLogout() {
     setAccountMenuOpen(false);
+    clearPersistedSeed();
     setIdentity(null);
     setProfile({ imageUrl: null, name: null });
     setDashboard(null);
@@ -413,12 +468,7 @@ export default function App() {
                   <Avatar imageUrl={null} name={null} />
                 </div>
 
-                <form
-                  className="login-form"
-                  onSubmit={(event) => {
-                    void submitLogin(event);
-                  }}
-                >
+                <form action={submitLogin} className="login-form">
                   <label className="field-label" htmlFor="slip39-seed">
                     Collector SLIP-39 seed
                   </label>

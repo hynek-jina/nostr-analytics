@@ -190,7 +190,7 @@ h3 {
 }
 
 h1 {
-  font-size: clamp(2.2rem, 5vw, 4.5rem);
+  font-size: clamp(1.9rem, 4vw, 3.6rem);
   line-height: 0.98;
   max-width: 760px;
 }
@@ -230,6 +230,7 @@ p {
 .seed-textarea,
 .method-select {
   background: rgba(255, 255, 255, 0.06);
+  border: 0;
   border-radius: 18px;
   color: #f4efe5;
   outline: none;
@@ -429,10 +430,27 @@ p {
 
 .select-wrap {
   min-width: 220px;
+  position: relative;
+}
+
+.select-wrap::after {
+  border-bottom: 2px solid rgba(244, 239, 229, 0.88);
+  border-right: 2px solid rgba(244, 239, 229, 0.88);
+  content: "";
+  height: 10px;
+  pointer-events: none;
+  position: absolute;
+  right: 22px;
+  top: 50%;
+  transform: translateY(-65%) rotate(45deg);
+  width: 10px;
 }
 
 .method-select {
-  padding: 12px 16px;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  padding: 12px 52px 12px 16px;
   width: 100%;
 }
 
