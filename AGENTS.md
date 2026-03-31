@@ -18,7 +18,7 @@ IMPORTANT: Run `bun run check-code` after changes. Fix any remaining issues and 
 
 - `apps/analytics-dashboard/` - React + Vite single-page dashboard for reading Linky payment telemetry from a Nostr collector inbox
 - Package manager is **Bun**
-- SLIP-39 login reuses `@linky/core/identity` from the local Linky checkout via a file dependency, so dashboard derivation matches Linky exactly
+- SLIP-39 login reuses the vendored `@linky/core/identity` workspace package, matching Linky's derivation paths and identity logic
 
 ## Architecture
 

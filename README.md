@@ -18,5 +18,5 @@ bun run check-code
 ## Notes
 
 - Login uses the collector account SLIP-39 seed.
-- Identity derivation reuses `@linky/core/identity` from the local Linky checkout.
+- Identity derivation reuses the vendored `@linky/core/identity` workspace package.
 - Telemetry is read from Nostr gift wraps and visualized in a single-page dashboard.
