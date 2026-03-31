@@ -66,6 +66,7 @@ export interface PaymentTelemetryEvent {
 }
 
 export interface DailySeriesItem {
+  bucketKind: "day" | "hour";
   dayKey: string;
   errorCount: number;
   label: string;
@@ -229,13 +230,59 @@ export const buildDailySeries = (args: {
   telemetry: readonly PaymentTelemetryEvent[];
 }): DailySeriesItem[] => {
   const nowMs = args.nowMs ?? Date.now();
+  const startMs = getPeriodStart(args.period, nowMs);
+  const items: DailySeriesItem[] = [];
+  const byDay = new Map<string, DailySeriesItem>();
+
+  if (args.period === "today") {
+    const startHour = new Date(startMs);
+    startHour.setMinutes(0, 0, 0);
+    const lastHour = new Date(nowMs);
+    lastHour.setMinutes(0, 0, 0);
+
+    for (
+      let cursorMs = startHour.getTime();
+      cursorMs <= lastHour.getTime();
+      cursorMs += 60 * 60 * 1000
+    ) {
+      const hourStart = new Date(cursorMs);
+      const key = hourStart.toISOString().slice(0, 13);
+      const item: DailySeriesItem = {
+        bucketKind: "hour",
+        dayKey: key,
+        errorCount: 0,
+        label: hourStart.toLocaleTimeString("en-GB", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        successCount: 0,
+        timestampMs: hourStart.getTime(),
+      };
+      byDay.set(key, item);
+      items.push(item);
+    }
+
+    for (const event of args.telemetry) {
+      const hour = new Date(event.createdAtSec * 1000);
+      hour.setMinutes(0, 0, 0);
+      const key = hour.toISOString().slice(0, 13);
+      const target = byDay.get(key);
+      if (!target) continue;
+
+      if (event.status === "ok") {
+        target.successCount += 1;
+      } else {
+        target.errorCount += 1;
+      }
+    }
+
+    return items;
+  }
+
   const formatter = new Intl.DateTimeFormat("en-GB", {
     day: "numeric",
     month: "short",
   });
-  const startMs = getPeriodStart(args.period, nowMs);
-  const items: DailySeriesItem[] = [];
-  const byDay = new Map<string, DailySeriesItem>();
 
   for (
     let cursorMs = startMs;
@@ -246,6 +293,7 @@ export const buildDailySeries = (args: {
     dayStart.setHours(0, 0, 0, 0);
     const key = dayStart.toISOString().slice(0, 10);
     const item: DailySeriesItem = {
+      bucketKind: "day",
       dayKey: key,
       errorCount: 0,
       label: formatter.format(dayStart),

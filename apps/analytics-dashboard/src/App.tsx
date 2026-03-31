@@ -10,13 +10,12 @@ import {
   normalizeSlip39Seed,
   type DerivedIdentity,
 } from "./lib/identity";
-import { fetchTelemetryForCollector } from "./lib/nostr";
+import { fetchAccountProfile, fetchTelemetryForCollector } from "./lib/nostr";
 import {
   buildDailySeries,
   buildErrorSummary,
   buildMethodOptions,
   filterTelemetryEvents,
-  formatShortNpub,
   isMethodFilter,
   PERIOD_FILTERS,
   type DailySeriesItem,
@@ -32,6 +31,11 @@ interface DashboardSnapshot {
   lastFetchedAtMs: number;
   relayUrls: string[];
   telemetryEvents: PaymentTelemetryEvent[];
+}
+
+interface AccountProfileState {
+  imageUrl: string | null;
+  name: string | null;
 }
 
 type LoadPhase = "idle" | "authenticating" | "loading" | "ready" | "error";
@@ -59,9 +63,42 @@ const formatTimestamp = (timestampMs: number): string => {
   }).format(new Date(timestampMs));
 };
 
+const Avatar = ({
+  imageUrl,
+  name,
+}: {
+  imageUrl: string | null;
+  name: string | null;
+}) => {
+  if (imageUrl) {
+    return (
+      <div className="account-avatar account-avatar-image">
+        <img
+          alt={name ?? "Nostr profile"}
+          className="avatar-image"
+          src={imageUrl}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      aria-label="Account avatar placeholder"
+      className="account-avatar account-avatar-placeholder"
+      role="img"
+    >
+      <span className="avatar-orb avatar-orb-large" />
+      <span className="avatar-orb avatar-orb-small" />
+    </div>
+  );
+};
+
 const Chart = ({ series }: { series: readonly DailySeriesItem[] }) => {
   const chartHeight = 280;
-  const chartWidth = Math.max(series.length * 58, 420);
+  const isHourly = series[0]?.bucketKind === "hour";
+  const groupWidth = isHourly ? 34 : 58;
+  const chartWidth = Math.max(series.length * groupWidth + 80, 420);
   const maxValue = Math.max(
     1,
     ...series.map((item) => Math.max(item.successCount, item.errorCount)),
@@ -71,97 +108,94 @@ const Chart = ({ series }: { series: readonly DailySeriesItem[] }) => {
   const gridValues = [0, Math.ceil(maxValue / 2), maxValue];
 
   return (
-    <div className="chart-shell">
-      <svg
-        aria-label="Payment outcomes per day"
-        className="chart-svg"
-        role="img"
-        viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-      >
-        <defs>
-          <linearGradient id="successBar" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="#7dd3a5" />
-            <stop offset="100%" stopColor="#21704e" />
-          </linearGradient>
-          <linearGradient id="errorBar" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="#ff9d7f" />
-            <stop offset="100%" stopColor="#a33c2c" />
-          </linearGradient>
-        </defs>
+    <svg
+      aria-label="Payment outcomes per day"
+      className="chart-svg"
+      role="img"
+      viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+    >
+      <defs>
+        <linearGradient id="successBar" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stopColor="#7dd3a5" />
+          <stop offset="100%" stopColor="#21704e" />
+        </linearGradient>
+        <linearGradient id="errorBar" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stopColor="#ff9d7f" />
+          <stop offset="100%" stopColor="#a33c2c" />
+        </linearGradient>
+      </defs>
 
-        {gridValues.map((value) => {
-          const y = baselineY - (value / maxValue) * usableHeight;
-          return (
-            <g key={value}>
-              <line
-                className="chart-grid-line"
-                x1="28"
-                x2={chartWidth - 18}
-                y1={y}
-                y2={y}
-              />
-              <text className="chart-grid-label" x="6" y={y + 4}>
-                {value}
-              </text>
-            </g>
-          );
-        })}
+      {gridValues.map((value) => {
+        const y = baselineY - (value / maxValue) * usableHeight;
+        return (
+          <g key={value}>
+            <line
+              className="chart-grid-line"
+              x1="28"
+              x2={chartWidth - 18}
+              y1={y}
+              y2={y}
+            />
+            <text className="chart-grid-label" x="6" y={y + 4}>
+              {value}
+            </text>
+          </g>
+        );
+      })}
 
-        {series.map((item, index) => {
-          const groupX = 44 + index * 58;
-          const successHeight = (item.successCount / maxValue) * usableHeight;
-          const errorHeight = (item.errorCount / maxValue) * usableHeight;
+      {series.map((item, index) => {
+        const groupX = 44 + index * groupWidth;
+        const successX = isHourly ? groupX : groupX;
+        const errorX = isHourly ? groupX + 12 : groupX + 22;
+        const barWidth = isHourly ? 10 : 18;
+        const successHeight = (item.successCount / maxValue) * usableHeight;
+        const errorHeight = (item.errorCount / maxValue) * usableHeight;
 
-          return (
-            <g key={item.dayKey}>
-              <rect
-                fill="url(#successBar)"
-                height={successHeight}
-                rx="8"
-                width="18"
-                x={groupX}
-                y={baselineY - successHeight}
-              />
-              <rect
-                fill="url(#errorBar)"
-                height={errorHeight}
-                rx="8"
-                width="18"
-                x={groupX + 22}
-                y={baselineY - errorHeight}
-              />
-              <text
-                className="chart-count-label"
-                x={groupX + 9}
-                y={baselineY - successHeight - 8}
-              >
-                {item.successCount}
-              </text>
-              <text
-                className="chart-count-label"
-                x={groupX + 31}
-                y={baselineY - errorHeight - 8}
-              >
-                {item.errorCount}
-              </text>
-              <text className="chart-x-label" x={groupX + 20} y="246">
-                {item.label}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
-      <div className="chart-legend">
-        <span className="legend-chip">
-          <span className="legend-dot legend-dot-success" />
-          Successful payments
-        </span>
-        <span className="legend-chip">
-          <span className="legend-dot legend-dot-error" />
-          Errors
-        </span>
-      </div>
-    </div>
+        return (
+          <g key={item.dayKey}>
+            <rect
+              fill="url(#successBar)"
+              height={successHeight}
+              rx="8"
+              width={barWidth}
+              x={successX}
+              y={baselineY - successHeight}
+            />
+            <rect
+              fill="url(#errorBar)"
+              height={errorHeight}
+              rx="8"
+              width={barWidth}
+              x={errorX}
+              y={baselineY - errorHeight}
+            />
+            <text
+              className="chart-count-label"
+              x={successX + barWidth / 2}
+              y={baselineY - successHeight - 8}
+            >
+              {item.successCount}
+            </text>
+            <text
+              className="chart-count-label"
+              x={errorX + barWidth / 2}
+              y={baselineY - errorHeight - 8}
+            >
+              {item.errorCount}
+            </text>
+            <text
+              className={
+                isHourly ? "chart-x-label chart-x-label-hour" : "chart-x-label"
+              }
+              x={groupX + (isHourly ? 11 : 20)}
+              y="246"
+            >
+              {item.label}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
   );
 };
 
@@ -184,7 +218,6 @@ const ErrorSummary = ({ items }: { items: readonly ErrorSummaryItem[] }) => {
         <div className="error-row" key={item.errorCode}>
           <div>
             <p className="error-code">{item.errorCode}</p>
-            <p className="error-caption">Reported payment error</p>
           </div>
           <span className="error-count">{item.count}</span>
         </div>
@@ -196,6 +229,11 @@ const ErrorSummary = ({ items }: { items: readonly ErrorSummaryItem[] }) => {
 export default function App() {
   const [seedInput, setSeedInput] = useState("");
   const [identity, setIdentity] = useState<DerivedIdentity | null>(null);
+  const [profile, setProfile] = useState<AccountProfileState>({
+    imageUrl: null,
+    name: null,
+  });
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [dashboard, setDashboard] = useState<DashboardSnapshot | null>(null);
   const [loadPhase, setLoadPhase] = useState<LoadPhase>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -221,6 +259,27 @@ export default function App() {
   const errorCount = filteredTelemetry.filter(
     (item) => item.status === "error",
   ).length;
+
+  async function loadProfile(
+    activeIdentity: DerivedIdentity,
+    relayUrls?: readonly string[],
+  ) {
+    try {
+      const nextProfile = await fetchAccountProfile(
+        relayUrls
+          ? {
+              publicKeyHex: activeIdentity.publicKeyHex,
+              relayUrls,
+            }
+          : {
+              publicKeyHex: activeIdentity.publicKeyHex,
+            },
+      );
+      setProfile(nextProfile);
+    } catch {
+      setProfile({ imageUrl: null, name: null });
+    }
+  }
 
   async function refreshTelemetry(nextIdentity?: DerivedIdentity) {
     const activeIdentity = nextIdentity ?? identity;
@@ -250,6 +309,7 @@ export default function App() {
         });
         setLoadPhase("ready");
       });
+      await loadProfile(activeIdentity, result.relayUrls);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Telemetry fetch failed.";
@@ -287,11 +347,14 @@ export default function App() {
     }
 
     setIdentity(nextIdentity);
+    setProfile({ imageUrl: null, name: null });
     await refreshTelemetry(nextIdentity);
   }
 
   function handleLogout() {
+    setAccountMenuOpen(false);
     setIdentity(null);
+    setProfile({ imageUrl: null, name: null });
     setDashboard(null);
     setSeedInput("");
     setSelectedMethod("all");
@@ -306,92 +369,97 @@ export default function App() {
       <div className="backdrop backdrop-right" />
 
       <section className="hero-card">
-        <p className="eyebrow">Internal analytics</p>
-        <h1>Linky payment telemetry dashboard</h1>
-        <p className="hero-copy">
-          Sign in with the collector&apos;s SLIP-39 seed. The dashboard derives
-          the exact same Nostr account as Linky and reads wrapped payment
-          telemetry from that inbox.
-        </p>
-
-        {!identity ? (
-          <form
-            className="login-form"
-            onSubmit={(event) => {
-              void submitLogin(event);
-            }}
-          >
-            <label className="field-label" htmlFor="slip39-seed">
-              Collector SLIP-39 seed
-            </label>
-            <textarea
-              className="seed-textarea"
-              id="slip39-seed"
-              onChange={(event) => setSeedInput(event.target.value)}
-              placeholder="humidity guest academic ..."
-              rows={4}
-              spellCheck={false}
-              value={seedInput}
-            />
-            <div className="action-row">
-              <button
-                className="primary-button"
-                disabled={
-                  loadPhase === "authenticating" || loadPhase === "loading"
-                }
-                type="submit"
-              >
-                {loadPhase === "authenticating"
-                  ? "Deriving account..."
-                  : "Login and load telemetry"}
-              </button>
-            </div>
-          </form>
-        ) : (
-          <div className="identity-panel">
-            <div>
-              <p className="field-label">Signed in collector account</p>
-              <p className="identity-value">{formatShortNpub(identity.npub)}</p>
-            </div>
-            <div className="action-row">
-              <button
-                className="primary-button"
-                disabled={loadPhase === "loading"}
-                onClick={() => {
-                  void refreshTelemetry();
-                }}
-                type="button"
-              >
-                {loadPhase === "loading"
-                  ? "Refreshing..."
-                  : "Refresh telemetry"}
-              </button>
-              <button
-                className="ghost-button"
-                onClick={handleLogout}
-                type="button"
-              >
-                Logout
-              </button>
-            </div>
+        <div className="hero-layout">
+          <div className="hero-copy-wrap">
+            <p className="eyebrow">Internal analytics</p>
+            <h1>Nostr dashboard</h1>
           </div>
-        )}
 
-        {errorMessage ? <p className="error-banner">{errorMessage}</p> : null}
+          <aside
+            className={
+              identity ? "login-card login-card-compact" : "login-card"
+            }
+          >
+            {identity ? (
+              <div className="login-card-avatar">
+                <button
+                  aria-expanded={accountMenuOpen}
+                  aria-haspopup="menu"
+                  className="avatar-button"
+                  onClick={() => setAccountMenuOpen((current) => !current)}
+                  type="button"
+                >
+                  <Avatar imageUrl={profile.imageUrl} name={profile.name} />
+                </button>
+                {accountMenuOpen ? (
+                  <div className="account-menu" role="menu">
+                    <button
+                      className="account-menu-item"
+                      onClick={handleLogout}
+                      type="button"
+                    >
+                      Logout
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <>
+                <div className="login-card-head">
+                  <div>
+                    <p className="eyebrow">Account</p>
+                    <h2>Login</h2>
+                  </div>
+                  <Avatar imageUrl={null} name={null} />
+                </div>
+
+                <form
+                  className="login-form"
+                  onSubmit={(event) => {
+                    void submitLogin(event);
+                  }}
+                >
+                  <label className="field-label" htmlFor="slip39-seed">
+                    Collector SLIP-39 seed
+                  </label>
+                  <textarea
+                    className="seed-textarea"
+                    id="slip39-seed"
+                    onChange={(event) => setSeedInput(event.target.value)}
+                    placeholder="humidity guest academic ..."
+                    rows={4}
+                    spellCheck={false}
+                    value={seedInput}
+                  />
+                  <div className="action-row">
+                    <button
+                      className="primary-button"
+                      disabled={
+                        loadPhase === "authenticating" ||
+                        loadPhase === "loading"
+                      }
+                      type="submit"
+                    >
+                      {loadPhase === "authenticating"
+                        ? "Deriving account..."
+                        : "Login and load telemetry"}
+                    </button>
+                  </div>
+                </form>
+              </>
+            )}
+
+            {!identity && errorMessage ? (
+              <p className="error-banner">{errorMessage}</p>
+            ) : null}
+          </aside>
+        </div>
       </section>
 
       <section className="dashboard-grid">
         <article className="panel panel-wide">
           <div className="panel-head">
-            <div>
-              <p className="eyebrow">Filters</p>
-              <h2>Payment outcomes over time</h2>
-            </div>
-            {dashboard ? (
-              <p className="panel-meta">
-                Last sync {formatTimestamp(dashboard.lastFetchedAtMs)}
-              </p>
-            ) : null}
+            <p className="eyebrow">Chart</p>
           </div>
 
           <div className="filters-row">
@@ -411,7 +479,6 @@ export default function App() {
             </div>
 
             <label className="select-wrap">
-              <span className="field-label">Method</span>
               <select
                 className="method-select"
                 onChange={(event) => {
@@ -432,14 +499,45 @@ export default function App() {
             </label>
           </div>
 
-          <Chart series={dailySeries} />
+          <div className="chart-shell">
+            <Chart series={dailySeries} />
+            <div className="chart-bottom-row">
+              <div className="chart-legend">
+                <span className="legend-chip">
+                  <span className="legend-dot legend-dot-success" />
+                  Successful payments
+                </span>
+                <span className="legend-chip">
+                  <span className="legend-dot legend-dot-error" />
+                  Errors
+                </span>
+              </div>
+
+              {identity && dashboard ? (
+                <div className="chart-footer-meta">
+                  <p className="chart-sync-meta">
+                    Last sync {formatTimestamp(dashboard.lastFetchedAtMs)}
+                  </p>
+                  <button
+                    className="chart-refresh-button"
+                    disabled={loadPhase === "loading"}
+                    onClick={() => {
+                      void refreshTelemetry();
+                    }}
+                    type="button"
+                  >
+                    {loadPhase === "loading" ? "Refreshing..." : "Refresh"}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </div>
         </article>
 
         <article className="panel">
           <div className="panel-head">
             <div>
               <p className="eyebrow">Snapshot</p>
-              <h2>Current selection</h2>
             </div>
           </div>
 
@@ -452,30 +550,26 @@ export default function App() {
               <span className="stat-label">Errors</span>
               <strong>{errorCount}</strong>
             </div>
-            <div className="stat-card">
-              <span className="stat-label">Events</span>
-              <strong>{filteredTelemetry.length}</strong>
-            </div>
-            <div className="stat-card">
-              <span className="stat-label">Error codes</span>
-              <strong>{errorSummary.length}</strong>
-            </div>
           </div>
 
           {dashboard ? (
-            <div className="ingestion-meta">
-              <p>
+            <div className="snapshot-meta">
+              <div className="snapshot-meta-row">
+                <span>Events</span>
+                <strong>{filteredTelemetry.length}</strong>
+              </div>
+              <div className="snapshot-meta-row">
+                <span>Error codes</span>
+                <strong>{errorSummary.length}</strong>
+              </div>
+              <div className="snapshot-meta-row">
                 <span>Wraps fetched</span>
                 <strong>{dashboard.fetchedWrapCount}</strong>
-              </p>
-              <p>
+              </div>
+              <div className="snapshot-meta-row">
                 <span>Ignored wraps</span>
                 <strong>{dashboard.ignoredWrapCount}</strong>
-              </p>
-              <p>
-                <span>Relays used</span>
-                <strong>{dashboard.relayUrls.length}</strong>
-              </p>
+              </div>
             </div>
           ) : (
             <div className="empty-panel">
@@ -491,39 +585,9 @@ export default function App() {
           <div className="panel-head">
             <div>
               <p className="eyebrow">Error summary</p>
-              <h2>Reported error codes</h2>
             </div>
-            <p className="panel-meta">
-              Sorted by descending count for the selected period and method.
-            </p>
           </div>
           <ErrorSummary items={errorSummary} />
-        </article>
-
-        <article className="panel">
-          <div className="panel-head">
-            <div>
-              <p className="eyebrow">Relays</p>
-              <h2>Collector relay set</h2>
-            </div>
-          </div>
-
-          {dashboard && dashboard.relayUrls.length > 0 ? (
-            <div className="relay-list">
-              {dashboard.relayUrls.map((relayUrl) => (
-                <code className="relay-chip" key={relayUrl}>
-                  {relayUrl}
-                </code>
-              ))}
-            </div>
-          ) : (
-            <div className="empty-panel">
-              <h3>Waiting for login</h3>
-              <p>
-                Relay discovery runs after the collector account is derived.
-              </p>
-            </div>
-          )}
         </article>
       </section>
     </main>

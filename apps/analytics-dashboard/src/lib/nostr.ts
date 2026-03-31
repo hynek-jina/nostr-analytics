@@ -34,6 +34,11 @@ export interface FetchTelemetryResult {
   telemetryEvents: PaymentTelemetryEvent[];
 }
 
+export interface AccountProfile {
+  imageUrl: string | null;
+  name: string | null;
+}
+
 let sharedPoolPromise: Promise<AppNostrPool> | null = null;
 
 const isObjectRecord = (value: unknown): value is Record<string, unknown> => {
@@ -83,6 +88,13 @@ const normalizeRelayUrls = (relayUrls: readonly string[]): string[] => {
   return unique;
 };
 
+const asTrimmedString = (value: unknown): string | null => {
+  if (typeof value !== "string") return null;
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
 const getSharedPool = async (): Promise<AppNostrPool> => {
   if (sharedPoolPromise) return sharedPoolPromise;
 
@@ -119,6 +131,51 @@ const loadRelayListForPubkey = async (
 
   const normalized = normalizeRelayUrls([...DEFAULT_RELAYS, ...relayUrls]);
   return normalized.length > 0 ? normalized : DEFAULT_RELAYS;
+};
+
+export const fetchAccountProfile = async (args: {
+  publicKeyHex: string;
+  relayUrls?: readonly string[];
+}): Promise<AccountProfile> => {
+  const relayUrls =
+    args.relayUrls && args.relayUrls.length > 0
+      ? normalizeRelayUrls(args.relayUrls)
+      : await loadRelayListForPubkey(args.publicKeyHex);
+  const pool = await getSharedPool();
+  const profileEvents = await pool.querySync(
+    relayUrls,
+    { authors: [args.publicKeyHex], kinds: [0], limit: 5 },
+    { maxWait: 5000 },
+  );
+
+  const newest = profileEvents
+    .slice()
+    .sort((left, right) => (right.created_at ?? 0) - (left.created_at ?? 0))[0];
+
+  if (!newest) {
+    return { imageUrl: null, name: null };
+  }
+
+  let parsed: unknown = null;
+  try {
+    parsed = JSON.parse(newest.content);
+  } catch {
+    return { imageUrl: null, name: null };
+  }
+
+  if (!isObjectRecord(parsed)) {
+    return { imageUrl: null, name: null };
+  }
+
+  const displayName = asTrimmedString(Reflect.get(parsed, "display_name"));
+  const fallbackName = asTrimmedString(Reflect.get(parsed, "name"));
+  const picture = asTrimmedString(Reflect.get(parsed, "picture"));
+  const image = asTrimmedString(Reflect.get(parsed, "image"));
+
+  return {
+    imageUrl: picture ?? image,
+    name: displayName ?? fallbackName,
+  };
 };
 
 export const fetchTelemetryForCollector = async (args: {
