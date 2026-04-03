@@ -55,6 +55,7 @@ export interface PaymentTelemetryEvent {
   createdAtSec: number;
   direction: "in" | "out";
   errorCode: string | null;
+  errorDetail: string | null;
   feeBucket: string | null;
   id: string;
   method: PaymentTelemetryMethod;
@@ -74,8 +75,14 @@ export interface DailySeriesItem {
   timestampMs: number;
 }
 
+export interface ErrorDetailSummaryItem {
+  count: number;
+  errorDetail: string | null;
+}
+
 export interface ErrorSummaryItem {
   count: number;
+  details: ErrorDetailSummaryItem[];
   errorCode: string;
 }
 
@@ -152,6 +159,7 @@ export const parsePaymentTelemetryContent = (
   const amountBucket = Reflect.get(parsed, "amountBucket");
   const feeBucket = Reflect.get(parsed, "feeBucket");
   const errorCode = Reflect.get(parsed, "errorCode");
+  const errorDetail = Reflect.get(parsed, "errorDetail");
   const platform = Reflect.get(parsed, "platform");
   const appVersion = Reflect.get(parsed, "appVersion");
 
@@ -172,6 +180,7 @@ export const parsePaymentTelemetryContent = (
   if (!isStringOrNull(amountBucket)) return null;
   if (!isStringOrNull(feeBucket)) return null;
   if (!isStringOrNull(errorCode)) return null;
+  if (!isStringOrNull(errorDetail)) return null;
 
   return {
     amountBucket,
@@ -179,6 +188,7 @@ export const parsePaymentTelemetryContent = (
     createdAtSec: Math.trunc(createdAtSec),
     direction,
     errorCode,
+    errorDetail,
     feeBucket,
     id,
     method,
@@ -324,17 +334,57 @@ export const buildDailySeries = (args: {
 export const buildErrorSummary = (
   telemetry: readonly PaymentTelemetryEvent[],
 ): ErrorSummaryItem[] => {
-  const counts = new Map<string, number>();
+  const counts = new Map<
+    string,
+    {
+      count: number;
+      details: Map<string, ErrorDetailSummaryItem>;
+    }
+  >();
 
   for (const event of telemetry) {
     if (event.status !== "error") continue;
     const errorCode = event.errorCode?.trim();
     if (!errorCode) continue;
-    counts.set(errorCode, (counts.get(errorCode) ?? 0) + 1);
+
+    const trimmedErrorDetail = event.errorDetail?.trim() ?? null;
+    const errorDetail =
+      trimmedErrorDetail && trimmedErrorDetail.length > 0
+        ? trimmedErrorDetail
+        : null;
+    const detailKey = errorDetail ?? "__empty__";
+    const bucket = counts.get(errorCode) ?? {
+      count: 0,
+      details: new Map<string, ErrorDetailSummaryItem>(),
+    };
+
+    bucket.count += 1;
+
+    const existingDetail = bucket.details.get(detailKey);
+    if (existingDetail) {
+      existingDetail.count += 1;
+    } else {
+      bucket.details.set(detailKey, {
+        count: 1,
+        errorDetail,
+      });
+    }
+
+    counts.set(errorCode, bucket);
   }
 
   return Array.from(counts.entries())
-    .map(([errorCode, count]) => ({ count, errorCode }))
+    .map(([errorCode, value]) => ({
+      count: value.count,
+      details: Array.from(value.details.values()).sort((left, right) => {
+        if (right.count !== left.count) return right.count - left.count;
+
+        if (left.errorDetail === null) return 1;
+        if (right.errorDetail === null) return -1;
+        return left.errorDetail.localeCompare(right.errorDetail);
+      }),
+      errorCode,
+    }))
     .sort((left, right) => {
       if (right.count !== left.count) return right.count - left.count;
       return left.errorCode.localeCompare(right.errorCode);

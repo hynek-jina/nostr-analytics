@@ -1,4 +1,7 @@
 :root {
+  --error-accent: #ff6f61;
+  --error-accent-strong: #b42318;
+  --error-accent-soft: rgba(255, 111, 97, 0.16);
   color: #eef8ef;
   font-family: "Avenir Next", "Segoe UI", sans-serif;
   background:
@@ -553,7 +556,7 @@ p {
 }
 
 .legend-dot-error {
-  background: #c681ff;
+  background: var(--error-accent);
 }
 
 .stats-grid {
@@ -614,15 +617,26 @@ p {
 }
 
 .error-row {
-  align-items: center;
   background: rgba(255, 255, 255, 0.05);
   border-radius: 20px;
+  overflow: hidden;
+}
+
+.error-row-summary {
+  align-items: center;
+  cursor: pointer;
   display: flex;
   justify-content: space-between;
+  list-style: none;
   padding: 16px 18px;
 }
 
+.error-row-summary::-webkit-details-marker {
+  display: none;
+}
+
 .error-code {
+  color: #ffe0dc;
   font-weight: 700;
 }
 
@@ -633,11 +647,50 @@ p {
 }
 
 .error-count {
-  background: rgba(170, 101, 255, 0.16);
+  background: var(--error-accent-soft);
   border-radius: 999px;
-  color: #f0e2ff;
+  color: #ffe7e3;
   min-width: 52px;
   padding: 8px 12px;
+  text-align: center;
+}
+
+.error-detail-list {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 18px 18px;
+}
+
+.error-detail-row {
+  align-items: start;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 16px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 12px 14px;
+}
+
+.error-detail-row-empty {
+  justify-content: start;
+}
+
+.error-detail-text {
+  color: #f7efec;
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.error-detail-count {
+  background: var(--error-accent-soft);
+  border-radius: 999px;
+  color: #ffe7e3;
+  flex: 0 0 auto;
+  min-width: 48px;
+  padding: 6px 10px;
   text-align: center;
 }
 
