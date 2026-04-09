@@ -59,6 +59,7 @@ export interface PaymentTelemetryEvent {
   feeBucket: string | null;
   id: string;
   method: PaymentTelemetryMethod;
+  mint: string | null;
   phase: PaymentTelemetryPhase;
   platform: PaymentTelemetryPlatform;
   senderPubkey: string;
@@ -86,6 +87,11 @@ export interface ErrorSummaryItem {
   errorCode: string;
 }
 
+export interface MintSummaryItem {
+  count: number;
+  mint: string | null;
+}
+
 const PERIOD_DAY_COUNT: Record<PeriodFilter, number> = {
   today: 1,
   "7d": 7,
@@ -98,6 +104,13 @@ const isObjectRecord = (value: unknown): value is Record<string, unknown> => {
 
 const isStringOrNull = (value: unknown): value is string | null => {
   return typeof value === "string" || value === null;
+};
+
+const toTrimmedStringOrNull = (value: unknown): string | null => {
+  if (typeof value !== "string") return null;
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 };
 
 const isStringArrayArray = (value: unknown): value is string[][] => {
@@ -160,8 +173,15 @@ export const parsePaymentTelemetryContent = (
   const feeBucket = Reflect.get(parsed, "feeBucket");
   const errorCode = Reflect.get(parsed, "errorCode");
   const errorDetail = Reflect.get(parsed, "errorDetail");
+  const mintValue = Reflect.get(parsed, "mint");
   const platform = Reflect.get(parsed, "platform");
   const appVersion = Reflect.get(parsed, "appVersion");
+  const mint =
+    mintValue === undefined
+      ? null
+      : isStringOrNull(mintValue)
+        ? toTrimmedStringOrNull(mintValue)
+        : false;
 
   if (typeof id !== "string" || id.trim().length === 0) return null;
   if (
@@ -177,6 +197,7 @@ export const parsePaymentTelemetryContent = (
   if (!isTelemetryPhase(phase)) return null;
   if (!isTelemetryPlatform(platform)) return null;
   if (typeof appVersion !== "string") return null;
+  if (mint === false) return null;
   if (!isStringOrNull(amountBucket)) return null;
   if (!isStringOrNull(feeBucket)) return null;
   if (!isStringOrNull(errorCode)) return null;
@@ -192,6 +213,7 @@ export const parsePaymentTelemetryContent = (
     feeBucket,
     id,
     method,
+    mint,
     phase,
     platform,
     status,
@@ -210,6 +232,19 @@ export const buildMethodOptions = (
   return Array.from(unique).sort();
 };
 
+export const buildMintOptions = (
+  telemetry: readonly PaymentTelemetryEvent[],
+): string[] => {
+  const unique = new Set<string>();
+
+  for (const event of telemetry) {
+    if (!event.mint) continue;
+    unique.add(event.mint);
+  }
+
+  return Array.from(unique).sort((left, right) => left.localeCompare(right));
+};
+
 const getPeriodStart = (period: PeriodFilter, nowMs: number): number => {
   const date = new Date(nowMs);
   date.setHours(0, 0, 0, 0);
@@ -218,6 +253,7 @@ const getPeriodStart = (period: PeriodFilter, nowMs: number): number => {
 };
 
 export const filterTelemetryEvents = (args: {
+  mint?: string | null;
   method: MethodFilter;
   nowMs?: number;
   period: PeriodFilter;
@@ -230,6 +266,7 @@ export const filterTelemetryEvents = (args: {
     const eventMs = event.createdAtSec * 1000;
     if (eventMs < periodStartMs || eventMs > nowMs) return false;
     if (args.method !== "all" && event.method !== args.method) return false;
+    if (args.mint && event.mint !== args.mint) return false;
     return true;
   });
 };
@@ -389,6 +426,34 @@ export const buildErrorSummary = (
       if (right.count !== left.count) return right.count - left.count;
       return left.errorCode.localeCompare(right.errorCode);
     });
+};
+
+export const buildMintSummary = (
+  telemetry: readonly PaymentTelemetryEvent[],
+): MintSummaryItem[] => {
+  const counts = new Map<string, MintSummaryItem>();
+
+  for (const event of telemetry) {
+    const key = event.mint ?? "__unknown__";
+    const existing = counts.get(key);
+
+    if (existing) {
+      existing.count += 1;
+      continue;
+    }
+
+    counts.set(key, {
+      count: 1,
+      mint: event.mint,
+    });
+  }
+
+  return Array.from(counts.values()).sort((left, right) => {
+    if (right.count !== left.count) return right.count - left.count;
+    if (left.mint === null) return 1;
+    if (right.mint === null) return -1;
+    return left.mint.localeCompare(right.mint);
+  });
 };
 
 export const formatShortNpub = (npub: string): string => {

@@ -16,12 +16,15 @@ import {
   buildDailySeries,
   buildErrorSummary,
   buildMethodOptions,
+  buildMintOptions,
+  buildMintSummary,
   filterTelemetryEvents,
   isMethodFilter,
   PERIOD_FILTERS,
   type DailySeriesItem,
   type ErrorSummaryItem,
   type MethodFilter,
+  type MintSummaryItem,
   type PaymentTelemetryEvent,
   type PeriodFilter,
 } from "./lib/telemetry";
@@ -65,6 +68,7 @@ const METHOD_LABELS: Record<MethodFilter, string> = {
 };
 
 const PERSISTED_SESSION_STORAGE_KEY = "analytics-dashboard-session-v1";
+const ALL_MINTS_VALUE = "";
 
 const isObjectRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null;
@@ -177,6 +181,17 @@ const formatTimestamp = (timestampMs: number): string => {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(timestampMs));
+};
+
+const formatMintLabel = (mint: string | null): string => {
+  if (!mint) return "Unknown mint";
+
+  try {
+    const url = new URL(mint);
+    return `${url.host}${url.pathname === "/" ? "" : url.pathname}`;
+  } catch {
+    return mint;
+  }
 };
 
 const Avatar = ({
@@ -369,6 +384,31 @@ const ErrorSummary = ({ items }: { items: readonly ErrorSummaryItem[] }) => {
   );
 };
 
+const MintSummary = ({ items }: { items: readonly MintSummaryItem[] }) => {
+  if (items.length === 0) {
+    return (
+      <div className="empty-panel">
+        <h3>No mint data in the selected range</h3>
+        <p>The currently visible telemetry does not contain any mint values.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mint-list">
+      {items.map((item) => (
+        <div className="mint-row" key={item.mint ?? "__unknown__"}>
+          <div className="mint-copy">
+            <p className="mint-label">{formatMintLabel(item.mint)}</p>
+            <p className="mint-value">{item.mint ?? "Missing mint value"}</p>
+          </div>
+          <span className="mint-count">{item.count}</span>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 export default function App() {
   const [seedInput, setSeedInput] = useState("");
   const [identity, setIdentity] = useState<DerivedIdentity | null>(null);
@@ -382,12 +422,16 @@ export default function App() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodFilter>("7d");
   const [selectedMethod, setSelectedMethod] = useState<MethodFilter>("all");
+  const [selectedMint, setSelectedMint] = useState("");
   const [hydratedFromCache, setHydratedFromCache] = useState(false);
 
   const deferredMethod = useDeferredValue(selectedMethod);
+  const deferredMint = useDeferredValue(selectedMint);
   const telemetry = dashboard?.telemetryEvents ?? [];
   const methodOptions = buildMethodOptions(telemetry);
+  const mintOptions = buildMintOptions(telemetry);
   const filteredTelemetry = filterTelemetryEvents({
+    mint: deferredMint || null,
     method: deferredMethod,
     period: selectedPeriod,
     telemetry,
@@ -397,6 +441,7 @@ export default function App() {
     telemetry: filteredTelemetry,
   });
   const errorSummary = buildErrorSummary(filteredTelemetry);
+  const mintSummary = buildMintSummary(filteredTelemetry);
   const successCount = filteredTelemetry.filter(
     (item) => item.status === "ok",
   ).length;
@@ -539,6 +584,7 @@ export default function App() {
         setDashboard(persistedSession.dashboard);
         setLoadPhase("ready");
         setHydratedFromCache(true);
+        void refreshTelemetry(restoredIdentity, persistedSession.seed);
         return;
       }
     } else {
@@ -618,6 +664,7 @@ export default function App() {
     setProfile({ imageUrl: null, name: null });
     setDashboard(null);
     setSeedInput("");
+    setSelectedMint("");
     setSelectedMethod("all");
     setSelectedPeriod("7d");
     setErrorMessage(null);
@@ -734,25 +781,42 @@ export default function App() {
               ))}
             </div>
 
-            <label className="select-wrap">
-              <select
-                className="method-select"
-                onChange={(event) => {
-                  const nextValue = event.target.value;
-                  if (isMethodFilter(nextValue)) {
-                    setSelectedMethod(nextValue);
-                  }
-                }}
-                value={selectedMethod}
-              >
-                <option value="all">{METHOD_LABELS.all}</option>
-                {methodOptions.map((method) => (
-                  <option key={method} value={method}>
-                    {METHOD_LABELS[method]}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="select-group">
+              <label className="select-wrap">
+                <select
+                  className="method-select"
+                  onChange={(event) => {
+                    const nextValue = event.target.value;
+                    if (isMethodFilter(nextValue)) {
+                      setSelectedMethod(nextValue);
+                    }
+                  }}
+                  value={selectedMethod}
+                >
+                  <option value="all">{METHOD_LABELS.all}</option>
+                  {methodOptions.map((method) => (
+                    <option key={method} value={method}>
+                      {METHOD_LABELS[method]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="select-wrap">
+                <select
+                  className="method-select"
+                  onChange={(event) => setSelectedMint(event.target.value)}
+                  value={selectedMint}
+                >
+                  <option value={ALL_MINTS_VALUE}>All mints</option>
+                  {mintOptions.map((mint) => (
+                    <option key={mint} value={mint}>
+                      {formatMintLabel(mint)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           </div>
 
           <div className="chart-shell">
@@ -837,6 +901,15 @@ export default function App() {
               </p>
             </div>
           )}
+        </article>
+
+        <article className="panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Mints</p>
+            </div>
+          </div>
+          <MintSummary items={mintSummary} />
         </article>
 
         <article className="panel panel-wide">

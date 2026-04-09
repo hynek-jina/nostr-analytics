@@ -414,6 +414,13 @@ p {
   justify-content: space-between;
 }
 
+.select-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  justify-content: end;
+}
+
 .pill-group {
   display: flex;
   flex-wrap: wrap;
@@ -610,6 +617,48 @@ p {
   font-size: 1rem;
 }
 
+.mint-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mint-row {
+  align-items: start;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 18px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 14px 16px;
+}
+
+.mint-copy {
+  min-width: 0;
+}
+
+.mint-label {
+  color: #dff4e4;
+  font-weight: 700;
+}
+
+.mint-value {
+  color: #bcd4c2;
+  font-size: 0.9rem;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
+.mint-count {
+  background: rgba(110, 236, 170, 0.14);
+  border-radius: 999px;
+  color: #dffbe7;
+  flex: 0 0 auto;
+  min-width: 48px;
+  padding: 6px 10px;
+  text-align: center;
+}
+
 .error-list {
   display: flex;
   flex-direction: column;
@@ -723,6 +772,15 @@ p {
     flex-direction: column;
   }
 
+  .filters-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .select-group {
+    justify-content: start;
+  }
+
   .chart-footer-meta {
     justify-content: start;
   }
@@ -761,6 +819,11 @@ p {
   .chart-bottom-row {
     align-items: start;
     flex-direction: column;
+  }
+
+  .select-group,
+  .select-wrap {
+    width: 100%;
   }
 
   .stats-grid {

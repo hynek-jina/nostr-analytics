@@ -1,0 +1,89 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1024"
+  height="1024"
+  viewBox="0 0 1024 1024"
+  fill="none"
+>
+  <rect width="1024" height="1024" rx="228" fill="url(#bg)" />
+  <rect
+    x="44"
+    y="44"
+    width="936"
+    height="936"
+    rx="184"
+    fill="url(#panel)"
+    fill-opacity="0.8"
+    stroke="url(#frame)"
+    stroke-width="8"
+  />
+  <circle cx="512" cy="512" r="294" stroke="url(#ring)" stroke-width="24" />
+  <circle
+    cx="512"
+    cy="512"
+    r="206"
+    fill="url(#core)"
+    stroke="rgba(236,244,240,0.12)"
+    stroke-width="2"
+  />
+  <g filter="url(#glow)">
+    <rect x="384" y="490" width="64" height="166" rx="32" fill="#7EF0C0" />
+    <rect x="480" y="400" width="64" height="256" rx="32" fill="#A693FF" />
+    <rect x="576" y="448" width="64" height="208" rx="32" fill="#F4F0E5" />
+  </g>
+  <path
+    d="M512 304C596.204 304 668.841 350.148 706.972 418"
+    stroke="url(#arc)"
+    stroke-width="22"
+    stroke-linecap="round"
+  />
+  <path
+    d="M317 614C343.277 685.496 411.953 736 492.5 736"
+    stroke="url(#arcSoft)"
+    stroke-width="20"
+    stroke-linecap="round"
+  />
+  <circle cx="709" cy="423" r="24" fill="#7EF0C0" />
+  <circle cx="316" cy="613" r="20" fill="#A693FF" />
+  <circle cx="512" cy="304" r="18" fill="#F4F0E5" />
+  <circle cx="790" cy="280" r="12" fill="#7EF0C0" fill-opacity="0.8" />
+  <circle cx="248" cy="772" r="10" fill="#F4F0E5" fill-opacity="0.75" />
+  <defs>
+    <linearGradient id="bg" x1="154" y1="92" x2="862" y2="914" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#081511" />
+      <stop offset="0.5" stop-color="#0D1717" />
+      <stop offset="1" stop-color="#170D20" />
+    </linearGradient>
+    <linearGradient id="panel" x1="136" y1="124" x2="864" y2="878" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#13211E" />
+      <stop offset="1" stop-color="#171320" />
+    </linearGradient>
+    <linearGradient id="frame" x1="128" y1="104" x2="914" y2="902" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#84F2C8" stop-opacity="0.3" />
+      <stop offset="1" stop-color="#A67BFF" stop-opacity="0.22" />
+    </linearGradient>
+    <radialGradient id="core" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(435 418) rotate(52.4) scale(391.287)">
+      <stop stop-color="#1A352C" />
+      <stop offset="0.58" stop-color="#10231F" />
+      <stop offset="1" stop-color="#191325" />
+    </radialGradient>
+    <linearGradient id="ring" x1="218" y1="271" x2="817" y2="757" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7EF0C0" />
+      <stop offset="0.52" stop-color="#87D6D0" />
+      <stop offset="1" stop-color="#A693FF" />
+    </linearGradient>
+    <linearGradient id="arc" x1="512" y1="304" x2="707" y2="418" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F4F0E5" />
+      <stop offset="1" stop-color="#7EF0C0" />
+    </linearGradient>
+    <linearGradient id="arcSoft" x1="316" y1="613" x2="493" y2="736" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A693FF" />
+      <stop offset="1" stop-color="#7EF0C0" />
+    </linearGradient>
+    <filter id="glow" x="332" y="348" width="360" height="360" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix" />
+      <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
+      <feGaussianBlur stdDeviation="18" result="effect1_foregroundBlur" />
+    </filter>
+  </defs>
+</svg>
