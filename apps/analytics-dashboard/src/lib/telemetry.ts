@@ -19,6 +19,7 @@ export type PaymentTelemetryPhase =
   | "unknown";
 
 export type PaymentTelemetryPlatform = "android" | "ios" | "web";
+export type PaymentTelemetryStatus = "declined" | "error" | "ok";
 export type PeriodFilter = "today" | "7d" | "30d";
 export type MethodFilter = PaymentTelemetryMethod | "all";
 
@@ -63,7 +64,7 @@ export interface PaymentTelemetryEvent {
   phase: PaymentTelemetryPhase;
   platform: PaymentTelemetryPlatform;
   senderPubkey: string;
-  status: "ok" | "error";
+  status: PaymentTelemetryStatus;
   wrapId: string;
 }
 
@@ -92,6 +93,18 @@ export interface MintSummaryItem {
   mint: string | null;
 }
 
+export interface MintSeriesItem {
+  errorCount: number;
+  mint: string | null;
+  successCount: number;
+}
+
+export interface MethodSeriesItem {
+  errorCount: number;
+  method: PaymentTelemetryMethod;
+  successCount: number;
+}
+
 const PERIOD_DAY_COUNT: Record<PeriodFilter, number> = {
   today: 1,
   "7d": 7,
@@ -111,6 +124,47 @@ const toTrimmedStringOrNull = (value: unknown): string | null => {
 
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+};
+
+const toTwoDigitString = (value: number): string => {
+  return String(value).padStart(2, "0");
+};
+
+const toLocalDayKey = (date: Date): string => {
+  return `${date.getFullYear()}-${toTwoDigitString(date.getMonth() + 1)}-${toTwoDigitString(date.getDate())}`;
+};
+
+const toLocalHourKey = (date: Date): string => {
+  return `${toLocalDayKey(date)}T${toTwoDigitString(date.getHours())}`;
+};
+
+const parseDayKey = (value: string): Date | null => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(day)
+  ) {
+    return null;
+  }
+
+  const parsed = new Date(year, month - 1, day);
+  parsed.setHours(0, 0, 0, 0);
+
+  if (
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== month - 1 ||
+    parsed.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return parsed;
 };
 
 const isStringArrayArray = (value: unknown): value is string[][] => {
@@ -135,6 +189,10 @@ const isTelemetryPlatform = (
   value: unknown,
 ): value is PaymentTelemetryPlatform => {
   return PAYMENT_PLATFORMS.some((platform) => platform === value);
+};
+
+const isTelemetryStatus = (value: unknown): value is PaymentTelemetryStatus => {
+  return value === "ok" || value === "declined" || value === "error";
 };
 
 export const isMethodFilter = (value: string): value is MethodFilter => {
@@ -192,7 +250,7 @@ export const parsePaymentTelemetryContent = (
     return null;
   }
   if (direction !== "in" && direction !== "out") return null;
-  if (status !== "ok" && status !== "error") return null;
+  if (!isTelemetryStatus(status)) return null;
   if (!isTelemetryMethod(method)) return null;
   if (!isTelemetryPhase(phase)) return null;
   if (!isTelemetryPlatform(platform)) return null;
@@ -253,6 +311,7 @@ const getPeriodStart = (period: PeriodFilter, nowMs: number): number => {
 };
 
 export const filterTelemetryEvents = (args: {
+  date?: string | null;
   mint?: string | null;
   method: MethodFilter;
   nowMs?: number;
@@ -261,10 +320,17 @@ export const filterTelemetryEvents = (args: {
 }): PaymentTelemetryEvent[] => {
   const nowMs = args.nowMs ?? Date.now();
   const periodStartMs = getPeriodStart(args.period, nowMs);
+  const selectedDay = args.date ? parseDayKey(args.date) : null;
+  const selectedDayKey = selectedDay ? toLocalDayKey(selectedDay) : null;
 
   return args.telemetry.filter((event) => {
     const eventMs = event.createdAtSec * 1000;
-    if (eventMs < periodStartMs || eventMs > nowMs) return false;
+    if (eventMs > nowMs) return false;
+    if (selectedDayKey) {
+      if (toLocalDayKey(new Date(eventMs)) !== selectedDayKey) return false;
+    } else if (eventMs < periodStartMs) {
+      return false;
+    }
     if (args.method !== "all" && event.method !== args.method) return false;
     if (args.mint && event.mint !== args.mint) return false;
     return true;
@@ -272,19 +338,27 @@ export const filterTelemetryEvents = (args: {
 };
 
 export const buildDailySeries = (args: {
+  date?: string | null;
   nowMs?: number;
   period: PeriodFilter;
   telemetry: readonly PaymentTelemetryEvent[];
 }): DailySeriesItem[] => {
   const nowMs = args.nowMs ?? Date.now();
-  const startMs = getPeriodStart(args.period, nowMs);
+  const selectedDay = args.date ? parseDayKey(args.date) : null;
+  const selectedDayKey = selectedDay ? toLocalDayKey(selectedDay) : null;
+  const shouldRenderHourly = args.period === "today" || Boolean(selectedDay);
+  const startMs = selectedDay
+    ? selectedDay.getTime()
+    : getPeriodStart(args.period, nowMs);
   const items: DailySeriesItem[] = [];
   const byDay = new Map<string, DailySeriesItem>();
 
-  if (args.period === "today") {
+  if (shouldRenderHourly) {
     const startHour = new Date(startMs);
     startHour.setMinutes(0, 0, 0);
-    const lastHour = new Date(nowMs);
+    const lastHour = selectedDay
+      ? new Date(selectedDay.getTime() + 23 * 60 * 60 * 1000)
+      : new Date(nowMs);
     lastHour.setMinutes(0, 0, 0);
 
     for (
@@ -293,7 +367,7 @@ export const buildDailySeries = (args: {
       cursorMs += 60 * 60 * 1000
     ) {
       const hourStart = new Date(cursorMs);
-      const key = hourStart.toISOString().slice(0, 13);
+      const key = toLocalHourKey(hourStart);
       const item: DailySeriesItem = {
         bucketKind: "hour",
         dayKey: key,
@@ -310,15 +384,20 @@ export const buildDailySeries = (args: {
     }
 
     for (const event of args.telemetry) {
+      if (selectedDayKey) {
+        const eventDayKey = toLocalDayKey(new Date(event.createdAtSec * 1000));
+        if (eventDayKey !== selectedDayKey) continue;
+      }
+
       const hour = new Date(event.createdAtSec * 1000);
       hour.setMinutes(0, 0, 0);
-      const key = hour.toISOString().slice(0, 13);
+      const key = toLocalHourKey(hour);
       const target = byDay.get(key);
       if (!target) continue;
 
       if (event.status === "ok") {
         target.successCount += 1;
-      } else {
+      } else if (event.status === "error") {
         target.errorCount += 1;
       }
     }
@@ -338,7 +417,7 @@ export const buildDailySeries = (args: {
   ) {
     const dayStart = new Date(cursorMs);
     dayStart.setHours(0, 0, 0, 0);
-    const key = dayStart.toISOString().slice(0, 10);
+    const key = toLocalDayKey(dayStart);
     const item: DailySeriesItem = {
       bucketKind: "day",
       dayKey: key,
@@ -354,13 +433,13 @@ export const buildDailySeries = (args: {
   for (const event of args.telemetry) {
     const day = new Date(event.createdAtSec * 1000);
     day.setHours(0, 0, 0, 0);
-    const key = day.toISOString().slice(0, 10);
+    const key = toLocalDayKey(day);
     const target = byDay.get(key);
     if (!target) continue;
 
     if (event.status === "ok") {
       target.successCount += 1;
-    } else {
+    } else if (event.status === "error") {
       target.errorCount += 1;
     }
   }
@@ -453,6 +532,71 @@ export const buildMintSummary = (
     if (left.mint === null) return 1;
     if (right.mint === null) return -1;
     return left.mint.localeCompare(right.mint);
+  });
+};
+
+export const buildMintSeries = (
+  telemetry: readonly PaymentTelemetryEvent[],
+): MintSeriesItem[] => {
+  const counts = new Map<string, MintSeriesItem>();
+
+  for (const event of telemetry) {
+    if (event.status === "declined") continue;
+
+    const key = event.mint ?? "__unknown__";
+    const existing = counts.get(key) ?? {
+      errorCount: 0,
+      mint: event.mint,
+      successCount: 0,
+    };
+
+    if (event.status === "ok") {
+      existing.successCount += 1;
+    } else if (event.status === "error") {
+      existing.errorCount += 1;
+    }
+
+    counts.set(key, existing);
+  }
+
+  return Array.from(counts.values()).sort((left, right) => {
+    const rightTotal = right.successCount + right.errorCount;
+    const leftTotal = left.successCount + left.errorCount;
+    if (rightTotal !== leftTotal) return rightTotal - leftTotal;
+    if (left.mint === null) return 1;
+    if (right.mint === null) return -1;
+    return left.mint.localeCompare(right.mint);
+  });
+};
+
+export const buildMethodSeries = (
+  telemetry: readonly PaymentTelemetryEvent[],
+): MethodSeriesItem[] => {
+  const counts = new Map<PaymentTelemetryMethod, MethodSeriesItem>();
+
+  for (const event of telemetry) {
+    if (event.status === "declined") continue;
+
+    const existing = counts.get(event.method) ?? {
+      errorCount: 0,
+      method: event.method,
+      successCount: 0,
+    };
+
+    if (event.status === "ok") {
+      existing.successCount += 1;
+    } else if (event.status === "error") {
+      existing.errorCount += 1;
+    }
+
+    counts.set(event.method, existing);
+  }
+
+  return Array.from(counts.values()).sort((left, right) => {
+    const rightTotal = right.successCount + right.errorCount;
+    const leftTotal = left.successCount + left.errorCount;
+    if (rightTotal !== leftTotal) return rightTotal - leftTotal;
+    return left.method.localeCompare(right.method);
   });
 };
 

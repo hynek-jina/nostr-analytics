@@ -1,4 +1,7 @@
 :root {
+  --declined-accent: #f6c453;
+  --declined-accent-strong: #b87a09;
+  --declined-accent-soft: rgba(246, 196, 83, 0.16);
   --error-accent: #ff6f61;
   --error-accent-strong: #b42318;
   --error-accent-soft: rgba(255, 111, 97, 0.16);
@@ -106,10 +109,14 @@ code {
 }
 
 .hero-layout {
-  align-items: start;
+  align-items: center;
   display: grid;
   gap: 28px;
   grid-template-columns: minmax(0, 1.6fr) minmax(320px, 0.9fr);
+}
+
+.hero-layout-compact {
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .hero-copy-wrap {
@@ -130,7 +137,6 @@ code {
 }
 
 .login-card-compact {
-  align-items: start;
   background: transparent;
   box-shadow: none;
   justify-self: end;
@@ -139,9 +145,44 @@ code {
 }
 
 .login-card-avatar {
+  align-items: center;
   display: flex;
   justify-content: end;
+}
+
+.account-menu-wrap {
   position: relative;
+}
+
+.page-sync-footer {
+  align-items: center;
+  color: #9fb6a5;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin: 20px auto 0;
+  max-width: 1180px;
+  padding: 0 12px;
+}
+
+.page-sync-text {
+  font-size: 0.8rem;
+}
+
+.page-sync-refresh {
+  background: transparent;
+  color: #c5d8c9;
+  font-size: 0.78rem;
+  opacity: 0.82;
+  padding: 2px 4px;
+}
+
+.page-sync-refresh:hover {
+  opacity: 1;
+}
+
+.page-sync-refresh:disabled {
+  opacity: 0.5;
 }
 
 .login-card-head {
@@ -464,6 +505,33 @@ p {
   width: 100%;
 }
 
+.active-filter-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.active-filter-hint {
+  color: #b7d2bf;
+  font-size: 0.88rem;
+}
+
+.active-filter-chip {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  color: #eef8ef;
+  display: inline-flex;
+  font-size: 0.82rem;
+  gap: 8px;
+  padding: 7px 12px;
+}
+
+.active-filter-chip-button {
+  cursor: pointer;
+}
+
 .chart-shell {
   background: linear-gradient(
     180deg,
@@ -481,6 +549,144 @@ p {
   height: auto;
   overflow: visible;
   width: 100%;
+}
+
+.chart-scroll-wrap {
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.chart-scroll-wrap .chart-svg {
+  min-width: 720px;
+}
+
+.snapshot-pie-wrap {
+  justify-items: center;
+  display: grid;
+  gap: 22px;
+  grid-template-columns: 1fr;
+}
+
+.snapshot-pie-svg {
+  display: block;
+  height: auto;
+  max-width: 220px;
+  width: 100%;
+}
+
+.snapshot-pie-label,
+.snapshot-pie-total-value {
+  fill: #08150f;
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  font-weight: 700;
+  text-anchor: middle;
+}
+
+.snapshot-pie-label {
+  font-size: 12px;
+}
+
+.snapshot-pie-center {
+  fill: rgba(8, 21, 15, 0.92);
+}
+
+.snapshot-pie-total-value {
+  fill: #eef8ef;
+  font-size: 26px;
+}
+
+.snapshot-breakdown {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  width: 100%;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.snapshot-breakdown-row {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 16px;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: 1fr;
+  justify-items: center;
+  min-width: 0;
+  padding: 10px 12px;
+  text-align: center;
+}
+
+.snapshot-breakdown-label {
+  align-items: center;
+  color: #c4e8ca;
+  display: inline-flex;
+  flex-wrap: wrap;
+  font-size: 0.92rem;
+  gap: 10px;
+  justify-content: center;
+  min-width: 0;
+  overflow-wrap: normal;
+}
+
+.snapshot-breakdown-row strong {
+  flex: 0 0 auto;
+  font-size: 1.8rem;
+}
+
+.snapshot-breakdown-dot {
+  border-radius: 999px;
+  display: inline-block;
+  height: 10px;
+  width: 10px;
+}
+
+.snapshot-breakdown-dot-success {
+  background: #63efaf;
+}
+
+.snapshot-breakdown-dot-declined {
+  background: #f6c453;
+}
+
+.snapshot-breakdown-dot-error {
+  background: #ff6f61;
+}
+
+.chart-bar-group,
+.mint-chart-row,
+.method-chart-row {
+  cursor: pointer;
+}
+
+.chart-bar-group:focus,
+.mint-chart-row:focus,
+.method-chart-row:focus {
+  outline: none;
+}
+
+.chart-hit-area,
+.mint-chart-hit-area,
+.method-chart-hit-area {
+  fill: transparent;
+  transition: fill 160ms ease;
+}
+
+.chart-bar-group:hover .chart-hit-area,
+.chart-bar-group:focus .chart-hit-area,
+.chart-bar-group-active .chart-hit-area {
+  fill: rgba(255, 255, 255, 0.06);
+}
+
+.mint-chart-row:hover .mint-chart-hit-area,
+.mint-chart-row:focus .mint-chart-hit-area,
+.mint-chart-row-active .mint-chart-hit-area {
+  fill: rgba(255, 255, 255, 0.05);
+}
+
+.method-chart-row:hover .method-chart-hit-area,
+.method-chart-row:focus .method-chart-hit-area,
+.method-chart-row-active .method-chart-hit-area {
+  fill: rgba(255, 255, 255, 0.05);
 }
 
 .chart-grid-line {
@@ -504,12 +710,6 @@ p {
 
 .chart-x-label-hour {
   font-size: 9px;
-}
-
-.chart-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
 }
 
 .chart-bottom-row {
@@ -542,34 +742,10 @@ p {
   padding: 7px 12px;
 }
 
-.legend-chip {
-  align-items: center;
-  background: rgba(255, 255, 255, 0.06);
-  border-radius: 999px;
-  display: inline-flex;
-  gap: 10px;
-  padding: 9px 14px;
-}
-
-.legend-dot {
-  border-radius: 999px;
-  display: inline-block;
-  height: 10px;
-  width: 10px;
-}
-
-.legend-dot-success {
-  background: #63efaf;
-}
-
-.legend-dot-error {
-  background: var(--error-accent);
-}
-
 .stats-grid {
   display: grid;
   gap: 14px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .stat-card {
@@ -589,9 +765,24 @@ p {
   margin-top: 8px;
 }
 
+.stat-card-declined {
+  background: linear-gradient(
+    180deg,
+    rgba(246, 196, 83, 0.12) 0%,
+    rgba(184, 122, 9, 0.08) 100%
+  );
+}
+
 .stat-label {
   color: #bfe7c8;
   font-size: 0.9rem;
+}
+
+.stat-meta {
+  color: #b7d2bf;
+  display: block;
+  font-size: 0.84rem;
+  margin-top: 8px;
 }
 
 .snapshot-meta {
@@ -657,6 +848,44 @@ p {
   min-width: 48px;
   padding: 6px 10px;
   text-align: center;
+}
+
+.mint-chart-label {
+  dominant-baseline: middle;
+  fill: #dff4e4;
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  font-size: 14px;
+}
+
+.method-chart-label {
+  dominant-baseline: middle;
+  fill: #dff4e4;
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  font-size: 14px;
+}
+
+.mint-chart-track {
+  fill: rgba(255, 255, 255, 0.05);
+}
+
+.method-chart-track {
+  fill: rgba(255, 255, 255, 0.05);
+}
+
+.mint-chart-row-active .mint-chart-track {
+  fill: rgba(255, 255, 255, 0.1);
+}
+
+.method-chart-row-active .method-chart-track {
+  fill: rgba(255, 255, 255, 0.1);
+}
+
+.mint-chart-count {
+  text-anchor: start;
+}
+
+.method-chart-count {
+  text-anchor: start;
 }
 
 .error-list {
@@ -759,8 +988,17 @@ p {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .hero-layout-compact {
+    align-items: start;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
   .login-card {
     justify-self: stretch;
+  }
+
+  .login-card-avatar {
+    justify-content: end;
   }
 
   .panel-wide,
@@ -775,6 +1013,14 @@ p {
   .filters-row {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .snapshot-breakdown {
+    grid-template-columns: 1fr;
   }
 
   .select-group {
@@ -805,6 +1051,19 @@ p {
     padding: 0;
   }
 
+  .login-card-avatar {
+    align-items: center;
+    flex-direction: row;
+    justify-content: end;
+  }
+
+  .page-sync-footer {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    margin-top: 16px;
+    padding: 0;
+  }
+
   .login-card-head {
     align-items: start;
     flex-direction: column;
@@ -828,5 +1087,13 @@ p {
 
   .stats-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .snapshot-pie-svg {
+    margin: 0 auto;
+  }
+
+  .chart-scroll-wrap .chart-svg {
+    min-width: 640px;
   }
 }
