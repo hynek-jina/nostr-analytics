@@ -18,7 +18,16 @@ export type PaymentTelemetryPhase =
   | "swap"
   | "unknown";
 
-export type PaymentTelemetryPlatform = "android" | "ios" | "web";
+type LegacyPaymentTelemetryPlatform = "android" | "ios" | "web";
+export type PaymentTelemetryDevicePlatform =
+  | "android"
+  | "iphone"
+  | "ipad"
+  | "linux"
+  | "mac"
+  | "windows"
+  | "unknown";
+export type PaymentTelemetryAppRuntime = "native" | "pwa" | "web";
 export type PaymentTelemetryStatus = "declined" | "error" | "ok";
 export type PeriodFilter = "today" | "7d" | "30d";
 export type MethodFilter = PaymentTelemetryMethod | "all";
@@ -43,17 +52,26 @@ export const PAYMENT_PHASES: readonly PaymentTelemetryPhase[] = [
   "unknown",
 ];
 
-export const PAYMENT_PLATFORMS: readonly PaymentTelemetryPlatform[] = [
+const LEGACY_PAYMENT_PLATFORMS: readonly LegacyPaymentTelemetryPlatform[] = [
   "android",
   "ios",
+  "web",
+];
+export const PAYMENT_DEVICE_PLATFORMS: readonly PaymentTelemetryDevicePlatform[] =
+  ["android", "iphone", "ipad", "linux", "mac", "windows", "unknown"];
+export const PAYMENT_APP_RUNTIMES: readonly PaymentTelemetryAppRuntime[] = [
+  "native",
+  "pwa",
   "web",
 ];
 export const PERIOD_FILTERS: readonly PeriodFilter[] = ["today", "7d", "30d"];
 
 export interface PaymentTelemetryEvent {
   amountBucket: string | null;
-  appVersion: string;
+  appRuntime: PaymentTelemetryAppRuntime | null;
+  appVersion: string | null;
   createdAtSec: number;
+  devicePlatform: PaymentTelemetryDevicePlatform | null;
   direction: "in" | "out";
   errorCode: string | null;
   errorDetail: string | null;
@@ -62,7 +80,6 @@ export interface PaymentTelemetryEvent {
   method: PaymentTelemetryMethod;
   mint: string | null;
   phase: PaymentTelemetryPhase;
-  platform: PaymentTelemetryPlatform;
   senderPubkey: string;
   status: PaymentTelemetryStatus;
   wrapId: string;
@@ -102,6 +119,13 @@ export interface MintSeriesItem {
 export interface MethodSeriesItem {
   errorCount: number;
   method: PaymentTelemetryMethod;
+  successCount: number;
+}
+
+export interface CategorySeriesItem {
+  errorCount: number;
+  key: string;
+  label: string;
   successCount: number;
 }
 
@@ -185,10 +209,22 @@ const isTelemetryPhase = (value: unknown): value is PaymentTelemetryPhase => {
   return PAYMENT_PHASES.some((phase) => phase === value);
 };
 
-const isTelemetryPlatform = (
+const isLegacyTelemetryPlatform = (
   value: unknown,
-): value is PaymentTelemetryPlatform => {
-  return PAYMENT_PLATFORMS.some((platform) => platform === value);
+): value is LegacyPaymentTelemetryPlatform => {
+  return LEGACY_PAYMENT_PLATFORMS.some((platform) => platform === value);
+};
+
+const isTelemetryDevicePlatform = (
+  value: unknown,
+): value is PaymentTelemetryDevicePlatform => {
+  return PAYMENT_DEVICE_PLATFORMS.some((platform) => platform === value);
+};
+
+const isTelemetryAppRuntime = (
+  value: unknown,
+): value is PaymentTelemetryAppRuntime => {
+  return PAYMENT_APP_RUNTIMES.some((runtime) => runtime === value);
 };
 
 const isTelemetryStatus = (value: unknown): value is PaymentTelemetryStatus => {
@@ -232,13 +268,54 @@ export const parsePaymentTelemetryContent = (
   const errorCode = Reflect.get(parsed, "errorCode");
   const errorDetail = Reflect.get(parsed, "errorDetail");
   const mintValue = Reflect.get(parsed, "mint");
-  const platform = Reflect.get(parsed, "platform");
-  const appVersion = Reflect.get(parsed, "appVersion");
+  const legacyPlatform = Reflect.get(parsed, "platform");
+  const devicePlatformValue = Reflect.get(parsed, "devicePlatform");
+  const appRuntimeValue = Reflect.get(parsed, "appRuntime");
+  const appVersionValue = Reflect.get(parsed, "appVersion");
   const mint =
     mintValue === undefined
       ? null
       : isStringOrNull(mintValue)
         ? toTrimmedStringOrNull(mintValue)
+        : false;
+  const normalizedLegacyPlatform =
+    legacyPlatform === undefined
+      ? null
+      : isLegacyTelemetryPlatform(legacyPlatform)
+        ? legacyPlatform
+        : false;
+  const devicePlatform =
+    devicePlatformValue === undefined
+      ? normalizedLegacyPlatform === "android"
+        ? "android"
+        : normalizedLegacyPlatform === "ios"
+          ? "iphone"
+          : normalizedLegacyPlatform === "web"
+            ? "unknown"
+            : null
+      : devicePlatformValue === null
+        ? null
+        : isTelemetryDevicePlatform(devicePlatformValue)
+          ? devicePlatformValue
+          : false;
+  const appRuntime =
+    appRuntimeValue === undefined
+      ? normalizedLegacyPlatform === "web"
+        ? "web"
+        : normalizedLegacyPlatform === "android" ||
+            normalizedLegacyPlatform === "ios"
+          ? "native"
+          : null
+      : appRuntimeValue === null
+        ? null
+        : isTelemetryAppRuntime(appRuntimeValue)
+          ? appRuntimeValue
+          : false;
+  const appVersion =
+    appVersionValue === undefined
+      ? null
+      : isStringOrNull(appVersionValue)
+        ? toTrimmedStringOrNull(appVersionValue)
         : false;
 
   if (typeof id !== "string" || id.trim().length === 0) return null;
@@ -253,8 +330,10 @@ export const parsePaymentTelemetryContent = (
   if (!isTelemetryStatus(status)) return null;
   if (!isTelemetryMethod(method)) return null;
   if (!isTelemetryPhase(phase)) return null;
-  if (!isTelemetryPlatform(platform)) return null;
-  if (typeof appVersion !== "string") return null;
+  if (normalizedLegacyPlatform === false) return null;
+  if (devicePlatform === false) return null;
+  if (appRuntime === false) return null;
+  if (appVersion === false) return null;
   if (mint === false) return null;
   if (!isStringOrNull(amountBucket)) return null;
   if (!isStringOrNull(feeBucket)) return null;
@@ -263,8 +342,10 @@ export const parsePaymentTelemetryContent = (
 
   return {
     amountBucket,
+    appRuntime,
     appVersion,
     createdAtSec: Math.trunc(createdAtSec),
+    devicePlatform,
     direction,
     errorCode,
     errorDetail,
@@ -273,9 +354,44 @@ export const parsePaymentTelemetryContent = (
     method,
     mint,
     phase,
-    platform,
     status,
   };
+};
+
+const buildCategorySeries = (
+  telemetry: readonly PaymentTelemetryEvent[],
+  resolveCategory: (event: PaymentTelemetryEvent) => string | null,
+  formatLabel: (value: string | null) => string,
+): CategorySeriesItem[] => {
+  const counts = new Map<string, CategorySeriesItem>();
+
+  for (const event of telemetry) {
+    if (event.status === "declined") continue;
+
+    const value = resolveCategory(event);
+    const key = value ?? "__unknown__";
+    const existing = counts.get(key) ?? {
+      errorCount: 0,
+      key,
+      label: formatLabel(value),
+      successCount: 0,
+    };
+
+    if (event.status === "ok") {
+      existing.successCount += 1;
+    } else if (event.status === "error") {
+      existing.errorCount += 1;
+    }
+
+    counts.set(key, existing);
+  }
+
+  return Array.from(counts.values()).sort((left, right) => {
+    const rightTotal = right.successCount + right.errorCount;
+    const leftTotal = left.successCount + left.errorCount;
+    if (rightTotal !== leftTotal) return rightTotal - leftTotal;
+    return left.label.localeCompare(right.label);
+  });
 };
 
 export const buildMethodOptions = (
@@ -598,6 +714,36 @@ export const buildMethodSeries = (
     if (rightTotal !== leftTotal) return rightTotal - leftTotal;
     return left.method.localeCompare(right.method);
   });
+};
+
+export const buildDevicePlatformSeries = (
+  telemetry: readonly PaymentTelemetryEvent[],
+): CategorySeriesItem[] => {
+  return buildCategorySeries(
+    telemetry,
+    (event) => event.devicePlatform,
+    (value) => value ?? "Unknown device",
+  );
+};
+
+export const buildAppRuntimeSeries = (
+  telemetry: readonly PaymentTelemetryEvent[],
+): CategorySeriesItem[] => {
+  return buildCategorySeries(
+    telemetry,
+    (event) => event.appRuntime,
+    (value) => value ?? "Unknown runtime",
+  );
+};
+
+export const buildAppVersionSeries = (
+  telemetry: readonly PaymentTelemetryEvent[],
+): CategorySeriesItem[] => {
+  return buildCategorySeries(
+    telemetry,
+    (event) => event.appVersion,
+    (value) => value ?? "Unknown version",
+  );
 };
 
 export const formatShortNpub = (npub: string): string => {

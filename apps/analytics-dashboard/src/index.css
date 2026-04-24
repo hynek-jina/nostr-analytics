@@ -1094,6 +1094,6 @@ p {
   }
 
   .chart-scroll-wrap .chart-svg {
-    min-width: 640px;
+    min-width: 100%;
   }
 }

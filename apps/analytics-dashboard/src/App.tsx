@@ -13,12 +13,16 @@ import {
 } from "./lib/identity";
 import { fetchAccountProfile, fetchTelemetryForCollector } from "./lib/nostr";
 import {
+  buildAppRuntimeSeries,
+  buildAppVersionSeries,
   buildDailySeries,
+  buildDevicePlatformSeries,
   buildErrorSummary,
   buildMethodSeries,
   buildMintSeries,
   filterTelemetryEvents,
   PERIOD_FILTERS,
+  type CategorySeriesItem,
   type DailySeriesItem,
   type ErrorSummaryItem,
   type MethodFilter,
@@ -69,6 +73,9 @@ const METHOD_LABELS: Record<MethodFilter, string> = {
 const PERSISTED_SESSION_STORAGE_KEY = "analytics-dashboard-session-v1";
 const ALL_METHODS_VALUE = "all";
 const UNKNOWN_MINT_FILTER_VALUE = "__unknown__";
+const UNKNOWN_DEVICE_PLATFORM_FILTER_VALUE = "__unknown_device_platform__";
+const UNKNOWN_APP_RUNTIME_FILTER_VALUE = "__unknown_app_runtime__";
+const UNKNOWN_APP_VERSION_FILTER_VALUE = "__unknown_app_version__";
 
 const isObjectRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null;
@@ -222,30 +229,103 @@ const formatMethodLabel = (method: MethodFilter): string => {
   return METHOD_LABELS[method];
 };
 
+const formatDevicePlatformLabel = (devicePlatform: string | null): string => {
+  if (!devicePlatform) return "Unknown device";
+
+  switch (devicePlatform) {
+    case "iphone":
+      return "iPhone";
+    case "ipad":
+      return "iPad";
+    case "mac":
+      return "Mac";
+    default:
+      return devicePlatform.charAt(0).toUpperCase() + devicePlatform.slice(1);
+  }
+};
+
+const formatAppRuntimeLabel = (appRuntime: string | null): string => {
+  if (!appRuntime) return "Unknown runtime";
+  if (appRuntime === "pwa") return "PWA";
+  return appRuntime.charAt(0).toUpperCase() + appRuntime.slice(1);
+};
+
+const formatAppVersionLabel = (appVersion: string | null): string => {
+  return appVersion ?? "Unknown version";
+};
+
+const toggleSelection = <T,>(current: readonly T[], value: T): T[] => {
+  return current.includes(value)
+    ? current.filter((item) => item !== value)
+    : [...current, value];
+};
+
 const applyMethodFilter = (
   telemetry: readonly PaymentTelemetryEvent[],
-  method: MethodFilter | null,
+  methods: readonly MethodFilter[],
 ): PaymentTelemetryEvent[] => {
-  if (!method || method === ALL_METHODS_VALUE) {
+  if (methods.length === 0) {
     return [...telemetry];
   }
 
-  return telemetry.filter((item) => item.method === method);
+  return telemetry.filter((item) => methods.includes(item.method));
 };
 
 const applyMintFilter = (
   telemetry: readonly PaymentTelemetryEvent[],
-  mint: string | null,
+  mints: readonly string[],
 ): PaymentTelemetryEvent[] => {
-  if (mint === null) {
+  if (mints.length === 0) {
     return [...telemetry];
   }
 
-  if (mint === UNKNOWN_MINT_FILTER_VALUE) {
-    return telemetry.filter((item) => item.mint === null);
+  return telemetry.filter((item) => {
+    const mint = item.mint ?? UNKNOWN_MINT_FILTER_VALUE;
+    return mints.includes(mint);
+  });
+};
+
+const applyDevicePlatformFilter = (
+  telemetry: readonly PaymentTelemetryEvent[],
+  devicePlatforms: readonly string[],
+): PaymentTelemetryEvent[] => {
+  if (devicePlatforms.length === 0) {
+    return [...telemetry];
   }
 
-  return telemetry.filter((item) => item.mint === mint);
+  return telemetry.filter((item) => {
+    const devicePlatform =
+      item.devicePlatform ?? UNKNOWN_DEVICE_PLATFORM_FILTER_VALUE;
+    return devicePlatforms.includes(devicePlatform);
+  });
+};
+
+const applyAppRuntimeFilter = (
+  telemetry: readonly PaymentTelemetryEvent[],
+  appRuntimes: readonly string[],
+): PaymentTelemetryEvent[] => {
+  if (appRuntimes.length === 0) {
+    return [...telemetry];
+  }
+
+  return telemetry.filter((item) => {
+    const appRuntime = item.appRuntime ?? UNKNOWN_APP_RUNTIME_FILTER_VALUE;
+    return appRuntimes.includes(appRuntime);
+  });
+};
+
+const applyAppVersionFilter = (
+  telemetry: readonly PaymentTelemetryEvent[],
+  appVersions: readonly string[],
+): PaymentTelemetryEvent[] => {
+  if (appVersions.length === 0) {
+    return [...telemetry];
+  }
+
+  return telemetry.filter((item) => {
+    const appVersion = item.appVersion ?? UNKNOWN_APP_VERSION_FILTER_VALUE;
+    return appVersions.includes(appVersion);
+  });
 };
 
 const formatMintLabel = (mint: string | null): string => {
@@ -257,6 +337,24 @@ const formatMintLabel = (mint: string | null): string => {
   } catch {
     return mint;
   }
+};
+
+const getHorizontalCountLabelProps = (
+  barWidth: number,
+  chartStartX: number,
+  chartUsableWidth: number,
+) => {
+  if (barWidth >= chartUsableWidth - 28) {
+    return {
+      textAnchor: "end" as const,
+      x: chartStartX + Math.max(barWidth - 10, 14),
+    };
+  }
+
+  return {
+    textAnchor: "start" as const,
+    x: chartStartX + barWidth + 10,
+  };
 };
 
 const polarToCartesian = (
@@ -383,6 +481,13 @@ const Chart = ({
         const successX = isHourly ? groupX : groupX;
         const errorX = isHourly ? groupX + 12 : groupX + 22;
         const barWidth = isHourly ? 10 : 18;
+        const labelCenterX = groupX + (isHourly ? 11 : 20);
+        const groupLeftX = Math.min(successX, errorX, labelCenterX - 12) - 10;
+        const groupRightX = Math.max(
+          successX + barWidth,
+          errorX + barWidth,
+          labelCenterX + (isHourly ? 12 : 22),
+        );
         const successHeight = (item.successCount / maxValue) * usableHeight;
         const errorHeight = (item.errorCount / maxValue) * usableHeight;
         const isActive = activeBucketKey === item.dayKey;
@@ -410,8 +515,8 @@ const Chart = ({
               className="chart-hit-area"
               height={usableHeight + 42}
               rx="12"
-              width={isHourly ? 24 : 42}
-              x={groupX - 6}
+              width={groupRightX - groupLeftX}
+              x={groupLeftX}
               y={baselineY - usableHeight - 8}
             />
             <rect
@@ -448,7 +553,7 @@ const Chart = ({
               className={
                 isHourly ? "chart-x-label chart-x-label-hour" : "chart-x-label"
               }
-              x={groupX + (isHourly ? 11 : 20)}
+              x={labelCenterX}
               y="246"
             >
               {item.label}
@@ -461,11 +566,11 @@ const Chart = ({
 };
 
 const MintChart = ({
-  activeMintKey,
+  activeMintKeys,
   onMintClick,
   series,
 }: {
-  activeMintKey: string | null;
+  activeMintKeys: readonly string[];
   onMintClick: (mint: string | null) => void;
   series: readonly MintSeriesItem[];
 }) => {
@@ -533,9 +638,19 @@ const MintChart = ({
         const errorY = rowTop + 24;
         const successWidth = (item.successCount / maxValue) * chartUsableWidth;
         const errorWidth = (item.errorCount / maxValue) * chartUsableWidth;
+        const successLabelProps = getHorizontalCountLabelProps(
+          successWidth,
+          chartStartX,
+          chartUsableWidth,
+        );
+        const errorLabelProps = getHorizontalCountLabelProps(
+          errorWidth,
+          chartStartX,
+          chartUsableWidth,
+        );
         const label = formatMintLabel(item.mint);
         const mintKey = item.mint ?? UNKNOWN_MINT_FILTER_VALUE;
-        const isActive = activeMintKey === mintKey;
+        const isActive = activeMintKeys.includes(mintKey);
 
         return (
           <g
@@ -601,14 +716,16 @@ const MintChart = ({
             />
             <text
               className="chart-count-label mint-chart-count"
-              x={chartStartX + successWidth + 10}
+              textAnchor={successLabelProps.textAnchor}
+              x={successLabelProps.x}
               y={successY + 11}
             >
               {item.successCount}
             </text>
             <text
               className="chart-count-label mint-chart-count"
-              x={chartStartX + errorWidth + 10}
+              textAnchor={errorLabelProps.textAnchor}
+              x={errorLabelProps.x}
               y={errorY + 11}
             >
               {item.errorCount}
@@ -621,11 +738,11 @@ const MintChart = ({
 };
 
 const MethodChart = ({
-  activeMethod,
+  activeMethods,
   onMethodClick,
   series,
 }: {
-  activeMethod: MethodFilter | null;
+  activeMethods: readonly MethodFilter[];
   onMethodClick: (method: MethodFilter) => void;
   series: readonly MethodSeriesItem[];
 }) => {
@@ -693,7 +810,17 @@ const MethodChart = ({
         const errorY = rowTop + 24;
         const successWidth = (item.successCount / maxValue) * chartUsableWidth;
         const errorWidth = (item.errorCount / maxValue) * chartUsableWidth;
-        const isActive = activeMethod === item.method;
+        const successLabelProps = getHorizontalCountLabelProps(
+          successWidth,
+          chartStartX,
+          chartUsableWidth,
+        );
+        const errorLabelProps = getHorizontalCountLabelProps(
+          errorWidth,
+          chartStartX,
+          chartUsableWidth,
+        );
+        const isActive = activeMethods.includes(item.method);
 
         return (
           <g
@@ -759,14 +886,200 @@ const MethodChart = ({
             />
             <text
               className="chart-count-label method-chart-count"
-              x={chartStartX + successWidth + 10}
+              textAnchor={successLabelProps.textAnchor}
+              x={successLabelProps.x}
               y={successY + 11}
             >
               {item.successCount}
             </text>
             <text
               className="chart-count-label method-chart-count"
-              x={chartStartX + errorWidth + 10}
+              textAnchor={errorLabelProps.textAnchor}
+              x={errorLabelProps.x}
+              y={errorY + 11}
+            >
+              {item.errorCount}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+};
+
+const BreakdownChart = ({
+  activeKeys,
+  chartId,
+  emptyDescription,
+  emptyTitle,
+  label,
+  onItemClick,
+  series,
+}: {
+  activeKeys: readonly string[];
+  chartId: string;
+  emptyDescription: string;
+  emptyTitle: string;
+  label: string;
+  onItemClick: (key: string) => void;
+  series: readonly CategorySeriesItem[];
+}) => {
+  if (series.length === 0) {
+    return (
+      <div className="empty-panel">
+        <h3>{emptyTitle}</h3>
+        <p>{emptyDescription}</p>
+      </div>
+    );
+  }
+
+  const chartWidth = 760;
+  const rowHeight = 56;
+  const chartHeight = Math.max(series.length * rowHeight + 32, 180);
+  const labelWidth = 190;
+  const chartStartX = labelWidth + 24;
+  const chartUsableWidth = chartWidth - chartStartX - 54;
+  const maxValue = Math.max(
+    1,
+    ...series.map((item) => Math.max(item.successCount, item.errorCount)),
+  );
+  const gridValues = [0, Math.ceil(maxValue / 2), maxValue];
+
+  return (
+    <svg
+      aria-label={`Payment outcomes by ${label}`}
+      className="chart-svg"
+      role="img"
+      viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+    >
+      <defs>
+        <linearGradient
+          id={`${chartId}-success-bar`}
+          x1="0"
+          x2="1"
+          y1="0"
+          y2="0"
+        >
+          <stop offset="0%" stopColor="#7dd3a5" />
+          <stop offset="100%" stopColor="#21704e" />
+        </linearGradient>
+        <linearGradient id={`${chartId}-error-bar`} x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0%" stopColor="#ff6f61" />
+          <stop offset="100%" stopColor="#b42318" />
+        </linearGradient>
+      </defs>
+
+      {gridValues.map((value) => {
+        const x = chartStartX + (value / maxValue) * chartUsableWidth;
+        return (
+          <g key={value}>
+            <line
+              className="chart-grid-line"
+              x1={x}
+              x2={x}
+              y1="12"
+              y2={chartHeight - 18}
+            />
+            <text className="chart-grid-label" x={x} y="12">
+              {value}
+            </text>
+          </g>
+        );
+      })}
+
+      {series.map((item, index) => {
+        const rowTop = 28 + index * rowHeight;
+        const labelY = rowTop + 14;
+        const successY = rowTop + 2;
+        const errorY = rowTop + 24;
+        const successWidth = (item.successCount / maxValue) * chartUsableWidth;
+        const errorWidth = (item.errorCount / maxValue) * chartUsableWidth;
+        const successLabelProps = getHorizontalCountLabelProps(
+          successWidth,
+          chartStartX,
+          chartUsableWidth,
+        );
+        const errorLabelProps = getHorizontalCountLabelProps(
+          errorWidth,
+          chartStartX,
+          chartUsableWidth,
+        );
+        const isActive = activeKeys.includes(item.key);
+
+        return (
+          <g
+            aria-label={`Filter by ${label} ${item.label}`}
+            className={
+              isActive
+                ? "method-chart-row method-chart-row-active"
+                : "method-chart-row"
+            }
+            key={item.key}
+            onClick={() => onItemClick(item.key)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onItemClick(item.key);
+              }
+            }}
+            role="button"
+            tabIndex={0}
+          >
+            <rect
+              className="method-chart-hit-area"
+              height="42"
+              rx="12"
+              width={chartWidth}
+              x="0"
+              y={rowTop - 8}
+            />
+            <text className="method-chart-label" x="0" y={labelY}>
+              {item.label}
+            </text>
+            <rect
+              className="method-chart-track"
+              height="14"
+              rx="7"
+              width={chartUsableWidth}
+              x={chartStartX}
+              y={successY}
+            />
+            <rect
+              className="method-chart-track"
+              height="14"
+              rx="7"
+              width={chartUsableWidth}
+              x={chartStartX}
+              y={errorY}
+            />
+            <rect
+              fill={`url(#${chartId}-success-bar)`}
+              height="14"
+              rx="7"
+              width={successWidth}
+              x={chartStartX}
+              y={successY}
+            />
+            <rect
+              fill={`url(#${chartId}-error-bar)`}
+              height="14"
+              rx="7"
+              width={errorWidth}
+              x={chartStartX}
+              y={errorY}
+            />
+            <text
+              className="chart-count-label method-chart-count"
+              textAnchor={successLabelProps.textAnchor}
+              x={successLabelProps.x}
+              y={successY + 11}
+            >
+              {item.successCount}
+            </text>
+            <text
+              className="chart-count-label method-chart-count"
+              textAnchor={errorLabelProps.textAnchor}
+              x={errorLabelProps.x}
               y={errorY + 11}
             >
               {item.errorCount}
@@ -961,16 +1274,24 @@ export default function App() {
   const [loadPhase, setLoadPhase] = useState<LoadPhase>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodFilter>("7d");
-  const [selectedMethod, setSelectedMethod] = useState<MethodFilter>("all");
-  const [selectedMint, setSelectedMint] = useState("");
+  const [selectedMethods, setSelectedMethods] = useState<MethodFilter[]>([]);
+  const [selectedMints, setSelectedMints] = useState<string[]>([]);
+  const [selectedDevicePlatforms, setSelectedDevicePlatforms] = useState<
+    string[]
+  >([]);
+  const [selectedAppRuntimes, setSelectedAppRuntimes] = useState<string[]>([]);
+  const [selectedAppVersions, setSelectedAppVersions] = useState<string[]>([]);
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedHour, setSelectedHour] = useState("");
   const [hydratedFromCache, setHydratedFromCache] = useState(false);
 
   const deferredDate = useDeferredValue(selectedDate);
   const deferredHour = useDeferredValue(selectedHour);
-  const deferredMethod = useDeferredValue(selectedMethod);
-  const deferredMint = useDeferredValue(selectedMint);
+  const deferredMethods = useDeferredValue(selectedMethods);
+  const deferredMints = useDeferredValue(selectedMints);
+  const deferredDevicePlatforms = useDeferredValue(selectedDevicePlatforms);
+  const deferredAppRuntimes = useDeferredValue(selectedAppRuntimes);
+  const deferredAppVersions = useDeferredValue(selectedAppVersions);
   const telemetry = dashboard?.telemetryEvents ?? [];
   const timeRangeTelemetry = filterTelemetryEvents({
     date: deferredDate || null,
@@ -978,31 +1299,85 @@ export default function App() {
     period: selectedPeriod,
     telemetry,
   });
-  const selectedMintValue =
-    deferredMint === UNKNOWN_MINT_FILTER_VALUE
-      ? UNKNOWN_MINT_FILTER_VALUE
-      : deferredMint || null;
-  const selectedMethodValue =
-    deferredMethod === ALL_METHODS_VALUE ? null : deferredMethod;
   const hourFilteredTelemetry = timeRangeTelemetry.filter((item) => {
     if (!deferredHour) return true;
     return toHourKey(new Date(item.createdAtSec * 1000)) === deferredHour;
   });
-  const timeChartTelemetry = applyMintFilter(
-    applyMethodFilter(timeRangeTelemetry, selectedMethodValue),
-    selectedMintValue,
+  const timeChartTelemetry = applyAppVersionFilter(
+    applyAppRuntimeFilter(
+      applyDevicePlatformFilter(
+        applyMintFilter(
+          applyMethodFilter(timeRangeTelemetry, deferredMethods),
+          deferredMints,
+        ),
+        deferredDevicePlatforms,
+      ),
+      deferredAppRuntimes,
+    ),
+    deferredAppVersions,
   );
-  const methodChartTelemetry = applyMintFilter(
-    hourFilteredTelemetry,
-    selectedMintValue,
+  const methodChartTelemetry = applyAppVersionFilter(
+    applyAppRuntimeFilter(
+      applyDevicePlatformFilter(
+        applyMintFilter(hourFilteredTelemetry, deferredMints),
+        deferredDevicePlatforms,
+      ),
+      deferredAppRuntimes,
+    ),
+    deferredAppVersions,
   );
-  const mintChartTelemetry = applyMethodFilter(
-    hourFilteredTelemetry,
-    selectedMethodValue,
+  const mintChartTelemetry = applyAppVersionFilter(
+    applyAppRuntimeFilter(
+      applyDevicePlatformFilter(
+        applyMethodFilter(hourFilteredTelemetry, deferredMethods),
+        deferredDevicePlatforms,
+      ),
+      deferredAppRuntimes,
+    ),
+    deferredAppVersions,
   );
-  const filteredTelemetry = applyMintFilter(
-    applyMethodFilter(hourFilteredTelemetry, selectedMethodValue),
-    selectedMintValue,
+  const devicePlatformChartTelemetry = applyAppVersionFilter(
+    applyAppRuntimeFilter(
+      applyMintFilter(
+        applyMethodFilter(hourFilteredTelemetry, deferredMethods),
+        deferredMints,
+      ),
+      deferredAppRuntimes,
+    ),
+    deferredAppVersions,
+  );
+  const appRuntimeChartTelemetry = applyAppVersionFilter(
+    applyDevicePlatformFilter(
+      applyMintFilter(
+        applyMethodFilter(hourFilteredTelemetry, deferredMethods),
+        deferredMints,
+      ),
+      deferredDevicePlatforms,
+    ),
+    deferredAppVersions,
+  );
+  const appVersionChartTelemetry = applyAppRuntimeFilter(
+    applyDevicePlatformFilter(
+      applyMintFilter(
+        applyMethodFilter(hourFilteredTelemetry, deferredMethods),
+        deferredMints,
+      ),
+      deferredDevicePlatforms,
+    ),
+    deferredAppRuntimes,
+  );
+  const filteredTelemetry = applyAppVersionFilter(
+    applyAppRuntimeFilter(
+      applyDevicePlatformFilter(
+        applyMintFilter(
+          applyMethodFilter(hourFilteredTelemetry, deferredMethods),
+          deferredMints,
+        ),
+        deferredDevicePlatforms,
+      ),
+      deferredAppRuntimes,
+    ),
+    deferredAppVersions,
   );
   const dailySeries = buildDailySeries({
     date: deferredDate || null,
@@ -1010,6 +1385,11 @@ export default function App() {
     telemetry: timeChartTelemetry,
   });
   const errorSummary = buildErrorSummary(filteredTelemetry);
+  const devicePlatformSeries = buildDevicePlatformSeries(
+    devicePlatformChartTelemetry,
+  );
+  const appRuntimeSeries = buildAppRuntimeSeries(appRuntimeChartTelemetry);
+  const appVersionSeries = buildAppVersionSeries(appVersionChartTelemetry);
   const mintSeries = buildMintSeries(mintChartTelemetry);
   const methodSeries = buildMethodSeries(methodChartTelemetry);
   const totalEventCount = filteredTelemetry.length;
@@ -1024,9 +1404,11 @@ export default function App() {
   ).length;
 
   const activeTimeBucketKey = deferredHour || deferredDate || null;
-  const activeMintKey = deferredMint || null;
-  const activeMethod =
-    deferredMethod === ALL_METHODS_VALUE ? null : deferredMethod;
+  const activeMintKeys = deferredMints;
+  const activeMethods = deferredMethods;
+  const activeDevicePlatformKeys = deferredDevicePlatforms;
+  const activeAppRuntimeKeys = deferredAppRuntimes;
+  const activeAppVersionKeys = deferredAppVersions;
 
   function handleTimeBucketClick(item: DailySeriesItem) {
     if (item.bucketKind === "day") {
@@ -1044,13 +1426,37 @@ export default function App() {
 
   function handleMintChartClick(mint: string | null) {
     const nextValue = mint ?? UNKNOWN_MINT_FILTER_VALUE;
-    setSelectedMint((current) => (current === nextValue ? "" : nextValue));
+    setSelectedMints((current) => toggleSelection(current, nextValue));
   }
 
   function handleMethodChartClick(method: MethodFilter) {
-    setSelectedMethod((current) =>
-      current === method ? ALL_METHODS_VALUE : method,
+    setSelectedMethods((current) => toggleSelection(current, method));
+  }
+
+  function handleDevicePlatformChartClick(devicePlatform: string) {
+    const nextValue =
+      devicePlatform === "__unknown__"
+        ? UNKNOWN_DEVICE_PLATFORM_FILTER_VALUE
+        : devicePlatform;
+    setSelectedDevicePlatforms((current) =>
+      toggleSelection(current, nextValue),
     );
+  }
+
+  function handleAppRuntimeChartClick(appRuntime: string) {
+    const nextValue =
+      appRuntime === "__unknown__"
+        ? UNKNOWN_APP_RUNTIME_FILTER_VALUE
+        : appRuntime;
+    setSelectedAppRuntimes((current) => toggleSelection(current, nextValue));
+  }
+
+  function handleAppVersionChartClick(appVersion: string) {
+    const nextValue =
+      appVersion === "__unknown__"
+        ? UNKNOWN_APP_VERSION_FILTER_VALUE
+        : appVersion;
+    setSelectedAppVersions((current) => toggleSelection(current, nextValue));
   }
 
   function clearDateFilter() {
@@ -1060,14 +1466,6 @@ export default function App() {
 
   function clearHourFilter() {
     setSelectedHour("");
-  }
-
-  function clearMintFilter() {
-    setSelectedMint("");
-  }
-
-  function clearMethodFilter() {
-    setSelectedMethod(ALL_METHODS_VALUE);
   }
 
   function handlePeriodChange(period: PeriodFilter) {
@@ -1293,8 +1691,11 @@ export default function App() {
     setSeedInput("");
     setSelectedDate("");
     setSelectedHour("");
-    setSelectedMint("");
-    setSelectedMethod("all");
+    setSelectedMints([]);
+    setSelectedMethods([]);
+    setSelectedDevicePlatforms([]);
+    setSelectedAppRuntimes([]);
+    setSelectedAppVersions([]);
     setSelectedPeriod("7d");
     setErrorMessage(null);
     setLoadPhase("idle");
@@ -1440,10 +1841,17 @@ export default function App() {
                 Hour: {formatHourLabel(selectedHour)}
               </button>
             ) : null}
-            {selectedMint ? (
+            {selectedMints.map((selectedMint) => (
               <button
                 className="active-filter-chip active-filter-chip-button"
-                onClick={clearMintFilter}
+                key={`mint-${selectedMint}`}
+                onClick={() =>
+                  handleMintChartClick(
+                    selectedMint === UNKNOWN_MINT_FILTER_VALUE
+                      ? null
+                      : selectedMint,
+                  )
+                }
                 type="button"
               >
                 Mint:{" "}
@@ -1451,16 +1859,75 @@ export default function App() {
                   ? "Unknown mint"
                   : formatMintLabel(selectedMint)}
               </button>
-            ) : null}
-            {selectedMethod !== ALL_METHODS_VALUE ? (
+            ))}
+            {selectedMethods.map((selectedMethod) => (
               <button
                 className="active-filter-chip active-filter-chip-button"
-                onClick={clearMethodFilter}
+                key={`method-${selectedMethod}`}
+                onClick={() => handleMethodChartClick(selectedMethod)}
                 type="button"
               >
                 Method: {formatMethodLabel(selectedMethod)}
               </button>
-            ) : null}
+            ))}
+            {selectedDevicePlatforms.map((selectedDevicePlatform) => (
+              <button
+                className="active-filter-chip active-filter-chip-button"
+                key={`device-${selectedDevicePlatform}`}
+                onClick={() =>
+                  handleDevicePlatformChartClick(
+                    selectedDevicePlatform ===
+                      UNKNOWN_DEVICE_PLATFORM_FILTER_VALUE
+                      ? "__unknown__"
+                      : selectedDevicePlatform,
+                  )
+                }
+                type="button"
+              >
+                Device:{" "}
+                {selectedDevicePlatform === UNKNOWN_DEVICE_PLATFORM_FILTER_VALUE
+                  ? "Unknown device"
+                  : formatDevicePlatformLabel(selectedDevicePlatform)}
+              </button>
+            ))}
+            {selectedAppRuntimes.map((selectedAppRuntime) => (
+              <button
+                className="active-filter-chip active-filter-chip-button"
+                key={`runtime-${selectedAppRuntime}`}
+                onClick={() =>
+                  handleAppRuntimeChartClick(
+                    selectedAppRuntime === UNKNOWN_APP_RUNTIME_FILTER_VALUE
+                      ? "__unknown__"
+                      : selectedAppRuntime,
+                  )
+                }
+                type="button"
+              >
+                Runtime:{" "}
+                {selectedAppRuntime === UNKNOWN_APP_RUNTIME_FILTER_VALUE
+                  ? "Unknown runtime"
+                  : formatAppRuntimeLabel(selectedAppRuntime)}
+              </button>
+            ))}
+            {selectedAppVersions.map((selectedAppVersion) => (
+              <button
+                className="active-filter-chip active-filter-chip-button"
+                key={`version-${selectedAppVersion}`}
+                onClick={() =>
+                  handleAppVersionChartClick(
+                    selectedAppVersion === UNKNOWN_APP_VERSION_FILTER_VALUE
+                      ? "__unknown__"
+                      : selectedAppVersion,
+                  )
+                }
+                type="button"
+              >
+                Version:{" "}
+                {selectedAppVersion === UNKNOWN_APP_VERSION_FILTER_VALUE
+                  ? "Unknown version"
+                  : formatAppVersionLabel(selectedAppVersion)}
+              </button>
+            ))}
           </div>
 
           <div className="chart-shell">
@@ -1521,7 +1988,7 @@ export default function App() {
           <div className="chart-shell">
             <div className="chart-scroll-wrap">
               <MethodChart
-                activeMethod={activeMethod}
+                activeMethods={activeMethods}
                 onMethodClick={handleMethodChartClick}
                 series={methodSeries}
               />
@@ -1539,9 +2006,75 @@ export default function App() {
           <div className="chart-shell">
             <div className="chart-scroll-wrap">
               <MintChart
-                activeMintKey={activeMintKey}
+                activeMintKeys={activeMintKeys}
                 onMintClick={handleMintChartClick}
                 series={mintSeries}
+              />
+            </div>
+          </div>
+        </article>
+
+        <article className="panel panel-wide">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Device platform</p>
+            </div>
+          </div>
+
+          <div className="chart-shell">
+            <div className="chart-scroll-wrap">
+              <BreakdownChart
+                activeKeys={activeDevicePlatformKeys}
+                chartId="device-platform"
+                emptyDescription="The current filter combination has no success or error events."
+                emptyTitle="No device platform data in the selected range"
+                label="device platform"
+                onItemClick={handleDevicePlatformChartClick}
+                series={devicePlatformSeries}
+              />
+            </div>
+          </div>
+        </article>
+
+        <article className="panel panel-wide">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">App runtime</p>
+            </div>
+          </div>
+
+          <div className="chart-shell">
+            <div className="chart-scroll-wrap">
+              <BreakdownChart
+                activeKeys={activeAppRuntimeKeys}
+                chartId="app-runtime"
+                emptyDescription="The current filter combination has no success or error events."
+                emptyTitle="No app runtime data in the selected range"
+                label="app runtime"
+                onItemClick={handleAppRuntimeChartClick}
+                series={appRuntimeSeries}
+              />
+            </div>
+          </div>
+        </article>
+
+        <article className="panel panel-wide">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">App version</p>
+            </div>
+          </div>
+
+          <div className="chart-shell">
+            <div className="chart-scroll-wrap">
+              <BreakdownChart
+                activeKeys={activeAppVersionKeys}
+                chartId="app-version"
+                emptyDescription="The current filter combination has no success or error events."
+                emptyTitle="No app version data in the selected range"
+                label="app version"
+                onItemClick={handleAppVersionChartClick}
+                series={appVersionSeries}
               />
             </div>
           </div>
