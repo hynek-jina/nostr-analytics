@@ -13,6 +13,7 @@ import {
 } from "./lib/identity";
 import { fetchAccountProfile, fetchTelemetryForCollector } from "./lib/nostr";
 import {
+  buildAppHostSeries,
   buildAppRuntimeSeries,
   buildAppVersionSeries,
   buildDailySeries,
@@ -76,6 +77,7 @@ const UNKNOWN_MINT_FILTER_VALUE = "__unknown__";
 const UNKNOWN_DEVICE_PLATFORM_FILTER_VALUE = "__unknown_device_platform__";
 const UNKNOWN_APP_RUNTIME_FILTER_VALUE = "__unknown_app_runtime__";
 const UNKNOWN_APP_VERSION_FILTER_VALUE = "__unknown_app_version__";
+const UNKNOWN_APP_HOST_FILTER_VALUE = "__unknown_app_host__";
 
 const isObjectRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null;
@@ -254,6 +256,10 @@ const formatAppVersionLabel = (appVersion: string | null): string => {
   return appVersion ?? "Unknown version";
 };
 
+const formatAppHostLabel = (appHost: string | null): string => {
+  return appHost ?? "Unknown host";
+};
+
 const toggleSelection = <T,>(current: readonly T[], value: T): T[] => {
   return current.includes(value)
     ? current.filter((item) => item !== value)
@@ -325,6 +331,20 @@ const applyAppVersionFilter = (
   return telemetry.filter((item) => {
     const appVersion = item.appVersion ?? UNKNOWN_APP_VERSION_FILTER_VALUE;
     return appVersions.includes(appVersion);
+  });
+};
+
+const applyAppHostFilter = (
+  telemetry: readonly PaymentTelemetryEvent[],
+  appHosts: readonly string[],
+): PaymentTelemetryEvent[] => {
+  if (appHosts.length === 0) {
+    return [...telemetry];
+  }
+
+  return telemetry.filter((item) => {
+    const appHost = item.appHost ?? UNKNOWN_APP_HOST_FILTER_VALUE;
+    return appHosts.includes(appHost);
   });
 };
 
@@ -1281,6 +1301,7 @@ export default function App() {
   >([]);
   const [selectedAppRuntimes, setSelectedAppRuntimes] = useState<string[]>([]);
   const [selectedAppVersions, setSelectedAppVersions] = useState<string[]>([]);
+  const [selectedAppHosts, setSelectedAppHosts] = useState<string[]>([]);
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedHour, setSelectedHour] = useState("");
   const [hydratedFromCache, setHydratedFromCache] = useState(false);
@@ -1292,6 +1313,7 @@ export default function App() {
   const deferredDevicePlatforms = useDeferredValue(selectedDevicePlatforms);
   const deferredAppRuntimes = useDeferredValue(selectedAppRuntimes);
   const deferredAppVersions = useDeferredValue(selectedAppVersions);
+  const deferredAppHosts = useDeferredValue(selectedAppHosts);
   const telemetry = dashboard?.telemetryEvents ?? [];
   const timeRangeTelemetry = filterTelemetryEvents({
     date: deferredDate || null,
@@ -1366,7 +1388,7 @@ export default function App() {
     ),
     deferredAppRuntimes,
   );
-  const filteredTelemetry = applyAppVersionFilter(
+  const appHostChartTelemetry = applyAppVersionFilter(
     applyAppRuntimeFilter(
       applyDevicePlatformFilter(
         applyMintFilter(
@@ -1379,6 +1401,22 @@ export default function App() {
     ),
     deferredAppVersions,
   );
+  const filteredTelemetry = applyAppHostFilter(
+    applyAppVersionFilter(
+      applyAppRuntimeFilter(
+        applyDevicePlatformFilter(
+          applyMintFilter(
+            applyMethodFilter(hourFilteredTelemetry, deferredMethods),
+            deferredMints,
+          ),
+          deferredDevicePlatforms,
+        ),
+        deferredAppRuntimes,
+      ),
+      deferredAppVersions,
+    ),
+    deferredAppHosts,
+  );
   const dailySeries = buildDailySeries({
     date: deferredDate || null,
     period: selectedPeriod,
@@ -1390,6 +1428,7 @@ export default function App() {
   );
   const appRuntimeSeries = buildAppRuntimeSeries(appRuntimeChartTelemetry);
   const appVersionSeries = buildAppVersionSeries(appVersionChartTelemetry);
+  const appHostSeries = buildAppHostSeries(appHostChartTelemetry);
   const mintSeries = buildMintSeries(mintChartTelemetry);
   const methodSeries = buildMethodSeries(methodChartTelemetry);
   const totalEventCount = filteredTelemetry.length;
@@ -1409,6 +1448,7 @@ export default function App() {
   const activeDevicePlatformKeys = deferredDevicePlatforms;
   const activeAppRuntimeKeys = deferredAppRuntimes;
   const activeAppVersionKeys = deferredAppVersions;
+  const activeAppHostKeys = deferredAppHosts;
 
   function handleTimeBucketClick(item: DailySeriesItem) {
     if (item.bucketKind === "day") {
@@ -1457,6 +1497,12 @@ export default function App() {
         ? UNKNOWN_APP_VERSION_FILTER_VALUE
         : appVersion;
     setSelectedAppVersions((current) => toggleSelection(current, nextValue));
+  }
+
+  function handleAppHostChartClick(appHost: string) {
+    const nextValue =
+      appHost === "__unknown__" ? UNKNOWN_APP_HOST_FILTER_VALUE : appHost;
+    setSelectedAppHosts((current) => toggleSelection(current, nextValue));
   }
 
   function clearDateFilter() {
@@ -1696,6 +1742,7 @@ export default function App() {
     setSelectedDevicePlatforms([]);
     setSelectedAppRuntimes([]);
     setSelectedAppVersions([]);
+    setSelectedAppHosts([]);
     setSelectedPeriod("7d");
     setErrorMessage(null);
     setLoadPhase("idle");
@@ -1928,6 +1975,25 @@ export default function App() {
                   : formatAppVersionLabel(selectedAppVersion)}
               </button>
             ))}
+            {selectedAppHosts.map((selectedAppHost) => (
+              <button
+                className="active-filter-chip active-filter-chip-button"
+                key={`host-${selectedAppHost}`}
+                onClick={() =>
+                  handleAppHostChartClick(
+                    selectedAppHost === UNKNOWN_APP_HOST_FILTER_VALUE
+                      ? "__unknown__"
+                      : selectedAppHost,
+                  )
+                }
+                type="button"
+              >
+                Host:{" "}
+                {selectedAppHost === UNKNOWN_APP_HOST_FILTER_VALUE
+                  ? "Unknown host"
+                  : formatAppHostLabel(selectedAppHost)}
+              </button>
+            ))}
           </div>
 
           <div className="chart-shell">
@@ -2075,6 +2141,28 @@ export default function App() {
                 label="app version"
                 onItemClick={handleAppVersionChartClick}
                 series={appVersionSeries}
+              />
+            </div>
+          </div>
+        </article>
+
+        <article className="panel panel-wide">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">App host</p>
+            </div>
+          </div>
+
+          <div className="chart-shell">
+            <div className="chart-scroll-wrap">
+              <BreakdownChart
+                activeKeys={activeAppHostKeys}
+                chartId="app-host"
+                emptyDescription="The current filter combination has no success or error events."
+                emptyTitle="No app host data in the selected range"
+                label="app host"
+                onItemClick={handleAppHostChartClick}
+                series={appHostSeries}
               />
             </div>
           </div>

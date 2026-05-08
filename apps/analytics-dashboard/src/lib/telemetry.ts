@@ -68,6 +68,7 @@ export const PERIOD_FILTERS: readonly PeriodFilter[] = ["today", "7d", "30d"];
 
 export interface PaymentTelemetryEvent {
   amountBucket: string | null;
+  appHost: string | null;
   appRuntime: PaymentTelemetryAppRuntime | null;
   appVersion: string | null;
   createdAtSec: number;
@@ -148,6 +149,27 @@ const toTrimmedStringOrNull = (value: unknown): string | null => {
 
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+};
+
+const normalizeAppHost = (value: string): string | null => {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return null;
+
+  const urlCandidate = trimmed.startsWith("//") ? `https:${trimmed}` : trimmed;
+  if (urlCandidate.includes("://")) {
+    try {
+      const url = new URL(urlCandidate);
+      return url.host ? url.host.toLowerCase() : null;
+    } catch {
+      return null;
+    }
+  }
+
+  const withoutPath = trimmed.split(/[/?#]/u, 1)[0]?.trim().toLowerCase() ?? "";
+  if (withoutPath.length === 0) return null;
+
+  const withoutAuth = withoutPath.split("@").at(-1)?.trim() ?? "";
+  return withoutAuth.length > 0 ? withoutAuth : null;
 };
 
 const toTwoDigitString = (value: number): string => {
@@ -270,6 +292,7 @@ export const parsePaymentTelemetryContent = (
   const mintValue = Reflect.get(parsed, "mint");
   const legacyPlatform = Reflect.get(parsed, "platform");
   const devicePlatformValue = Reflect.get(parsed, "devicePlatform");
+  const appHostValue = Reflect.get(parsed, "appHost");
   const appRuntimeValue = Reflect.get(parsed, "appRuntime");
   const appVersionValue = Reflect.get(parsed, "appVersion");
   const mint =
@@ -298,6 +321,14 @@ export const parsePaymentTelemetryContent = (
         : isTelemetryDevicePlatform(devicePlatformValue)
           ? devicePlatformValue
           : false;
+  const appHost =
+    appHostValue === undefined
+      ? null
+      : isStringOrNull(appHostValue)
+        ? appHostValue === null
+          ? null
+          : normalizeAppHost(appHostValue)
+        : false;
   const appRuntime =
     appRuntimeValue === undefined
       ? normalizedLegacyPlatform === "web"
@@ -332,6 +363,7 @@ export const parsePaymentTelemetryContent = (
   if (!isTelemetryPhase(phase)) return null;
   if (normalizedLegacyPlatform === false) return null;
   if (devicePlatform === false) return null;
+  if (appHost === false) return null;
   if (appRuntime === false) return null;
   if (appVersion === false) return null;
   if (mint === false) return null;
@@ -342,6 +374,7 @@ export const parsePaymentTelemetryContent = (
 
   return {
     amountBucket,
+    appHost,
     appRuntime,
     appVersion,
     createdAtSec: Math.trunc(createdAtSec),
@@ -743,6 +776,16 @@ export const buildAppVersionSeries = (
     telemetry,
     (event) => event.appVersion,
     (value) => value ?? "Unknown version",
+  );
+};
+
+export const buildAppHostSeries = (
+  telemetry: readonly PaymentTelemetryEvent[],
+): CategorySeriesItem[] => {
+  return buildCategorySeries(
+    telemetry,
+    (event) => event.appHost,
+    (value) => value ?? "Unknown host",
   );
 };
 

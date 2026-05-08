@@ -25,7 +25,7 @@ IMPORTANT: Run `bun run check-code` after changes. Fix any remaining issues and 
 - No router; the dashboard is a single page with local React state
 - Login accepts a SLIP-39 seed, derives the same Nostr account as Linky, and uses that keypair to read the account inbox from Nostr relays
 - Relay discovery first checks the signed-in account relay list (`kind: 10002`) and falls back to Linky's default relays
-- Telemetry ingestion reads gift wraps (`kind: 1059`), unwraps them locally, keeps only inner `kind: 24134` payment telemetry events, validates payloads with runtime guards, and ignores malformed data
+- Telemetry ingestion reads gift wraps (`kind: 1059`), unwraps them locally, keeps only inner `kind: 24134` payment telemetry events, validates payloads with runtime guards, normalizes `appHost`, and ignores malformed data
 - Aggregation for charting and summaries is done with pure helper functions in memory
 
 ## Maintaining This File
