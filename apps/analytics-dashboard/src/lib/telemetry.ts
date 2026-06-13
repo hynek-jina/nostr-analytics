@@ -89,6 +89,7 @@ export interface PaymentTelemetryEvent {
 export interface DailySeriesItem {
   bucketKind: "day" | "hour";
   dayKey: string;
+  declinedCount: number;
   errorCount: number;
   label: string;
   successCount: number;
@@ -112,18 +113,21 @@ export interface MintSummaryItem {
 }
 
 export interface MintSeriesItem {
+  declinedCount: number;
   errorCount: number;
   mint: string | null;
   successCount: number;
 }
 
 export interface MethodSeriesItem {
+  declinedCount: number;
   errorCount: number;
   method: PaymentTelemetryMethod;
   successCount: number;
 }
 
 export interface CategorySeriesItem {
+  declinedCount: number;
   errorCount: number;
   key: string;
   label: string;
@@ -399,11 +403,10 @@ const buildCategorySeries = (
   const counts = new Map<string, CategorySeriesItem>();
 
   for (const event of telemetry) {
-    if (event.status === "declined") continue;
-
     const value = resolveCategory(event);
     const key = value ?? "__unknown__";
     const existing = counts.get(key) ?? {
+      declinedCount: 0,
       errorCount: 0,
       key,
       label: formatLabel(value),
@@ -412,6 +415,8 @@ const buildCategorySeries = (
 
     if (event.status === "ok") {
       existing.successCount += 1;
+    } else if (event.status === "declined") {
+      existing.declinedCount += 1;
     } else if (event.status === "error") {
       existing.errorCount += 1;
     }
@@ -420,8 +425,9 @@ const buildCategorySeries = (
   }
 
   return Array.from(counts.values()).sort((left, right) => {
-    const rightTotal = right.successCount + right.errorCount;
-    const leftTotal = left.successCount + left.errorCount;
+    const rightTotal =
+      right.successCount + right.declinedCount + right.errorCount;
+    const leftTotal = left.successCount + left.declinedCount + left.errorCount;
     if (rightTotal !== leftTotal) return rightTotal - leftTotal;
     return left.label.localeCompare(right.label);
   });
@@ -520,6 +526,7 @@ export const buildDailySeries = (args: {
       const item: DailySeriesItem = {
         bucketKind: "hour",
         dayKey: key,
+        declinedCount: 0,
         errorCount: 0,
         label: hourStart.toLocaleTimeString("en-GB", {
           hour: "2-digit",
@@ -546,6 +553,8 @@ export const buildDailySeries = (args: {
 
       if (event.status === "ok") {
         target.successCount += 1;
+      } else if (event.status === "declined") {
+        target.declinedCount += 1;
       } else if (event.status === "error") {
         target.errorCount += 1;
       }
@@ -570,6 +579,7 @@ export const buildDailySeries = (args: {
     const item: DailySeriesItem = {
       bucketKind: "day",
       dayKey: key,
+      declinedCount: 0,
       errorCount: 0,
       label: formatter.format(dayStart),
       successCount: 0,
@@ -588,6 +598,8 @@ export const buildDailySeries = (args: {
 
     if (event.status === "ok") {
       target.successCount += 1;
+    } else if (event.status === "declined") {
+      target.declinedCount += 1;
     } else if (event.status === "error") {
       target.errorCount += 1;
     }
@@ -599,6 +611,20 @@ export const buildDailySeries = (args: {
 export const buildErrorSummary = (
   telemetry: readonly PaymentTelemetryEvent[],
 ): ErrorSummaryItem[] => {
+  return buildStatusMessageSummary(telemetry, "error", false);
+};
+
+export const buildDeclinedSummary = (
+  telemetry: readonly PaymentTelemetryEvent[],
+): ErrorSummaryItem[] => {
+  return buildStatusMessageSummary(telemetry, "declined", true);
+};
+
+function buildStatusMessageSummary(
+  telemetry: readonly PaymentTelemetryEvent[],
+  status: "declined" | "error",
+  includeMissingErrorCode: boolean,
+): ErrorSummaryItem[] {
   const counts = new Map<
     string,
     {
@@ -608,17 +634,20 @@ export const buildErrorSummary = (
   >();
 
   for (const event of telemetry) {
-    if (event.status !== "error") continue;
-    const errorCode = event.errorCode?.trim();
-    if (!errorCode) continue;
+    if (event.status !== status) continue;
+    const trimmedErrorCode = event.errorCode?.trim() ?? null;
+    const errorCode =
+      trimmedErrorCode && trimmedErrorCode.length > 0 ? trimmedErrorCode : null;
+    if (!errorCode && !includeMissingErrorCode) continue;
 
     const trimmedErrorDetail = event.errorDetail?.trim() ?? null;
     const errorDetail =
       trimmedErrorDetail && trimmedErrorDetail.length > 0
         ? trimmedErrorDetail
         : null;
+    const errorCodeKey = errorCode ?? "No errorCode value";
     const detailKey = errorDetail ?? "__empty__";
-    const bucket = counts.get(errorCode) ?? {
+    const bucket = counts.get(errorCodeKey) ?? {
       count: 0,
       details: new Map<string, ErrorDetailSummaryItem>(),
     };
@@ -635,7 +664,7 @@ export const buildErrorSummary = (
       });
     }
 
-    counts.set(errorCode, bucket);
+    counts.set(errorCodeKey, bucket);
   }
 
   return Array.from(counts.entries())
@@ -654,7 +683,7 @@ export const buildErrorSummary = (
       if (right.count !== left.count) return right.count - left.count;
       return left.errorCode.localeCompare(right.errorCode);
     });
-};
+}
 
 export const buildMintSummary = (
   telemetry: readonly PaymentTelemetryEvent[],
@@ -690,10 +719,9 @@ export const buildMintSeries = (
   const counts = new Map<string, MintSeriesItem>();
 
   for (const event of telemetry) {
-    if (event.status === "declined") continue;
-
     const key = event.mint ?? "__unknown__";
     const existing = counts.get(key) ?? {
+      declinedCount: 0,
       errorCount: 0,
       mint: event.mint,
       successCount: 0,
@@ -701,6 +729,8 @@ export const buildMintSeries = (
 
     if (event.status === "ok") {
       existing.successCount += 1;
+    } else if (event.status === "declined") {
+      existing.declinedCount += 1;
     } else if (event.status === "error") {
       existing.errorCount += 1;
     }
@@ -709,8 +739,9 @@ export const buildMintSeries = (
   }
 
   return Array.from(counts.values()).sort((left, right) => {
-    const rightTotal = right.successCount + right.errorCount;
-    const leftTotal = left.successCount + left.errorCount;
+    const rightTotal =
+      right.successCount + right.declinedCount + right.errorCount;
+    const leftTotal = left.successCount + left.declinedCount + left.errorCount;
     if (rightTotal !== leftTotal) return rightTotal - leftTotal;
     if (left.mint === null) return 1;
     if (right.mint === null) return -1;
@@ -724,9 +755,8 @@ export const buildMethodSeries = (
   const counts = new Map<PaymentTelemetryMethod, MethodSeriesItem>();
 
   for (const event of telemetry) {
-    if (event.status === "declined") continue;
-
     const existing = counts.get(event.method) ?? {
+      declinedCount: 0,
       errorCount: 0,
       method: event.method,
       successCount: 0,
@@ -734,6 +764,8 @@ export const buildMethodSeries = (
 
     if (event.status === "ok") {
       existing.successCount += 1;
+    } else if (event.status === "declined") {
+      existing.declinedCount += 1;
     } else if (event.status === "error") {
       existing.errorCount += 1;
     }
@@ -742,8 +774,9 @@ export const buildMethodSeries = (
   }
 
   return Array.from(counts.values()).sort((left, right) => {
-    const rightTotal = right.successCount + right.errorCount;
-    const leftTotal = left.successCount + left.errorCount;
+    const rightTotal =
+      right.successCount + right.declinedCount + right.errorCount;
+    const leftTotal = left.successCount + left.declinedCount + left.errorCount;
     if (rightTotal !== leftTotal) return rightTotal - leftTotal;
     return left.method.localeCompare(right.method);
   });

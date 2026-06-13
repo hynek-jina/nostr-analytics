@@ -17,6 +17,7 @@ import {
   buildAppRuntimeSeries,
   buildAppVersionSeries,
   buildDailySeries,
+  buildDeclinedSummary,
   buildDevicePlatformSeries,
   buildErrorSummary,
   buildMethodSeries,
@@ -377,6 +378,49 @@ const getHorizontalCountLabelProps = (
   };
 };
 
+const getOutcomeMaxValue = (
+  series: readonly {
+    declinedCount: number;
+    errorCount: number;
+    successCount: number;
+  }[],
+): number => {
+  return Math.max(
+    1,
+    ...series.map((item) =>
+      Math.max(item.successCount, item.declinedCount, item.errorCount),
+    ),
+  );
+};
+
+const getOutcomeTotal = (item: {
+  declinedCount: number;
+  errorCount: number;
+  successCount: number;
+}): number => {
+  return item.successCount + item.declinedCount + item.errorCount;
+};
+
+const getStackedSegmentLabelProps = (
+  segmentStartX: number,
+  segmentWidth: number,
+  chartStartX: number,
+  chartUsableWidth: number,
+) => {
+  if (segmentWidth >= 26) {
+    return {
+      textAnchor: "middle" as const,
+      x: segmentStartX + segmentWidth / 2,
+    };
+  }
+
+  return getHorizontalCountLabelProps(
+    segmentStartX + segmentWidth - chartStartX,
+    chartStartX,
+    chartUsableWidth,
+  );
+};
+
 const polarToCartesian = (
   centerX: number,
   centerY: number,
@@ -450,12 +494,9 @@ const Chart = ({
 }) => {
   const chartHeight = 280;
   const isHourly = series[0]?.bucketKind === "hour";
-  const groupWidth = isHourly ? 34 : 58;
+  const groupWidth = isHourly ? 42 : 70;
   const chartWidth = Math.max(series.length * groupWidth + 80, 420);
-  const maxValue = Math.max(
-    1,
-    ...series.map((item) => Math.max(item.successCount, item.errorCount)),
-  );
+  const maxValue = getOutcomeMaxValue(series);
   const usableHeight = 180;
   const baselineY = 215;
   const gridValues = [0, Math.ceil(maxValue / 2), maxValue];
@@ -471,6 +512,10 @@ const Chart = ({
         <linearGradient id="successBar" x1="0" x2="0" y1="0" y2="1">
           <stop offset="0%" stopColor="#7dd3a5" />
           <stop offset="100%" stopColor="#21704e" />
+        </linearGradient>
+        <linearGradient id="declinedBar" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stopColor="#f8d77a" />
+          <stop offset="100%" stopColor="#b87a09" />
         </linearGradient>
         <linearGradient id="errorBar" x1="0" x2="0" y1="0" y2="1">
           <stop offset="0%" stopColor="#ff6f61" />
@@ -498,17 +543,21 @@ const Chart = ({
 
       {series.map((item, index) => {
         const groupX = 44 + index * groupWidth;
-        const successX = isHourly ? groupX : groupX;
-        const errorX = isHourly ? groupX + 12 : groupX + 22;
-        const barWidth = isHourly ? 10 : 18;
-        const labelCenterX = groupX + (isHourly ? 11 : 20);
-        const groupLeftX = Math.min(successX, errorX, labelCenterX - 12) - 10;
+        const successX = groupX;
+        const declinedX = isHourly ? groupX + 11 : groupX + 18;
+        const errorX = isHourly ? groupX + 22 : groupX + 36;
+        const barWidth = isHourly ? 9 : 14;
+        const labelCenterX = groupX + (isHourly ? 15.5 : 25);
+        const groupLeftX =
+          Math.min(successX, declinedX, errorX, labelCenterX - 12) - 10;
         const groupRightX = Math.max(
           successX + barWidth,
+          declinedX + barWidth,
           errorX + barWidth,
           labelCenterX + (isHourly ? 12 : 22),
         );
         const successHeight = (item.successCount / maxValue) * usableHeight;
+        const declinedHeight = (item.declinedCount / maxValue) * usableHeight;
         const errorHeight = (item.errorCount / maxValue) * usableHeight;
         const isActive = activeBucketKey === item.dayKey;
 
@@ -548,6 +597,14 @@ const Chart = ({
               y={baselineY - successHeight}
             />
             <rect
+              fill="url(#declinedBar)"
+              height={declinedHeight}
+              rx="8"
+              width={barWidth}
+              x={declinedX}
+              y={baselineY - declinedHeight}
+            />
+            <rect
               fill="url(#errorBar)"
               height={errorHeight}
               rx="8"
@@ -561,6 +618,13 @@ const Chart = ({
               y={baselineY - successHeight - 8}
             >
               {item.successCount}
+            </text>
+            <text
+              className="chart-count-label"
+              x={declinedX + barWidth / 2}
+              y={baselineY - declinedHeight - 8}
+            >
+              {item.declinedCount}
             </text>
             <text
               className="chart-count-label"
@@ -598,21 +662,18 @@ const MintChart = ({
     return (
       <div className="empty-panel">
         <h3>No mint chart data in the selected range</h3>
-        <p>The current filter combination has no success or error events.</p>
+        <p>The current filter combination has no payment outcome events.</p>
       </div>
     );
   }
 
   const chartWidth = 760;
-  const rowHeight = 56;
+  const rowHeight = 48;
   const chartHeight = Math.max(series.length * rowHeight + 32, 180);
   const labelWidth = 190;
   const chartStartX = labelWidth + 24;
   const chartUsableWidth = chartWidth - chartStartX - 54;
-  const maxValue = Math.max(
-    1,
-    ...series.map((item) => Math.max(item.successCount, item.errorCount)),
-  );
+  const maxValue = Math.max(1, ...series.map((item) => getOutcomeTotal(item)));
   const gridValues = [0, Math.ceil(maxValue / 2), maxValue];
 
   return (
@@ -626,6 +687,10 @@ const MintChart = ({
         <linearGradient id="mintSuccessBar" x1="0" x2="1" y1="0" y2="0">
           <stop offset="0%" stopColor="#7dd3a5" />
           <stop offset="100%" stopColor="#21704e" />
+        </linearGradient>
+        <linearGradient id="mintDeclinedBar" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0%" stopColor="#f8d77a" />
+          <stop offset="100%" stopColor="#b87a09" />
         </linearGradient>
         <linearGradient id="mintErrorBar" x1="0" x2="1" y1="0" y2="0">
           <stop offset="0%" stopColor="#ff6f61" />
@@ -653,17 +718,28 @@ const MintChart = ({
 
       {series.map((item, index) => {
         const rowTop = 28 + index * rowHeight;
-        const labelY = rowTop + 14;
-        const successY = rowTop + 2;
-        const errorY = rowTop + 24;
+        const labelY = rowTop + 8;
+        const barY = rowTop;
         const successWidth = (item.successCount / maxValue) * chartUsableWidth;
+        const declinedWidth =
+          (item.declinedCount / maxValue) * chartUsableWidth;
         const errorWidth = (item.errorCount / maxValue) * chartUsableWidth;
-        const successLabelProps = getHorizontalCountLabelProps(
+        const declinedX = chartStartX + successWidth;
+        const errorX = declinedX + declinedWidth;
+        const successLabelProps = getStackedSegmentLabelProps(
+          chartStartX,
           successWidth,
           chartStartX,
           chartUsableWidth,
         );
-        const errorLabelProps = getHorizontalCountLabelProps(
+        const declinedLabelProps = getStackedSegmentLabelProps(
+          declinedX,
+          declinedWidth,
+          chartStartX,
+          chartUsableWidth,
+        );
+        const errorLabelProps = getStackedSegmentLabelProps(
+          errorX,
           errorWidth,
           chartStartX,
           chartUsableWidth,
@@ -693,7 +769,7 @@ const MintChart = ({
           >
             <rect
               className="mint-chart-hit-area"
-              height="42"
+              height="34"
               rx="12"
               width={chartWidth}
               x="0"
@@ -704,52 +780,66 @@ const MintChart = ({
             </text>
             <rect
               className="mint-chart-track"
-              height="14"
+              height="16"
               rx="7"
               width={chartUsableWidth}
               x={chartStartX}
-              y={successY}
-            />
-            <rect
-              className="mint-chart-track"
-              height="14"
-              rx="7"
-              width={chartUsableWidth}
-              x={chartStartX}
-              y={errorY}
+              y={barY}
             />
             <rect
               fill="url(#mintSuccessBar)"
-              height="14"
+              height="16"
               rx="7"
               width={successWidth}
               x={chartStartX}
-              y={successY}
+              y={barY}
+            />
+            <rect
+              fill="url(#mintDeclinedBar)"
+              height="16"
+              rx="7"
+              width={declinedWidth}
+              x={declinedX}
+              y={barY}
             />
             <rect
               fill="url(#mintErrorBar)"
-              height="14"
+              height="16"
               rx="7"
               width={errorWidth}
-              x={chartStartX}
-              y={errorY}
+              x={errorX}
+              y={barY}
             />
-            <text
-              className="chart-count-label mint-chart-count"
-              textAnchor={successLabelProps.textAnchor}
-              x={successLabelProps.x}
-              y={successY + 11}
-            >
-              {item.successCount}
-            </text>
-            <text
-              className="chart-count-label mint-chart-count"
-              textAnchor={errorLabelProps.textAnchor}
-              x={errorLabelProps.x}
-              y={errorY + 11}
-            >
-              {item.errorCount}
-            </text>
+            {item.successCount > 0 ? (
+              <text
+                className="chart-count-label mint-chart-count"
+                textAnchor={successLabelProps.textAnchor}
+                x={successLabelProps.x}
+                y={barY + 12}
+              >
+                {item.successCount}
+              </text>
+            ) : null}
+            {item.declinedCount > 0 ? (
+              <text
+                className="chart-count-label mint-chart-count"
+                textAnchor={declinedLabelProps.textAnchor}
+                x={declinedLabelProps.x}
+                y={barY + 12}
+              >
+                {item.declinedCount}
+              </text>
+            ) : null}
+            {item.errorCount > 0 ? (
+              <text
+                className="chart-count-label mint-chart-count"
+                textAnchor={errorLabelProps.textAnchor}
+                x={errorLabelProps.x}
+                y={barY + 12}
+              >
+                {item.errorCount}
+              </text>
+            ) : null}
           </g>
         );
       })}
@@ -770,21 +860,18 @@ const MethodChart = ({
     return (
       <div className="empty-panel">
         <h3>No method chart data in the selected range</h3>
-        <p>The current filter combination has no success or error events.</p>
+        <p>The current filter combination has no payment outcome events.</p>
       </div>
     );
   }
 
   const chartWidth = 760;
-  const rowHeight = 56;
+  const rowHeight = 48;
   const chartHeight = Math.max(series.length * rowHeight + 32, 180);
   const labelWidth = 190;
   const chartStartX = labelWidth + 24;
   const chartUsableWidth = chartWidth - chartStartX - 54;
-  const maxValue = Math.max(
-    1,
-    ...series.map((item) => Math.max(item.successCount, item.errorCount)),
-  );
+  const maxValue = Math.max(1, ...series.map((item) => getOutcomeTotal(item)));
   const gridValues = [0, Math.ceil(maxValue / 2), maxValue];
 
   return (
@@ -798,6 +885,10 @@ const MethodChart = ({
         <linearGradient id="methodSuccessBar" x1="0" x2="1" y1="0" y2="0">
           <stop offset="0%" stopColor="#7dd3a5" />
           <stop offset="100%" stopColor="#21704e" />
+        </linearGradient>
+        <linearGradient id="methodDeclinedBar" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0%" stopColor="#f8d77a" />
+          <stop offset="100%" stopColor="#b87a09" />
         </linearGradient>
         <linearGradient id="methodErrorBar" x1="0" x2="1" y1="0" y2="0">
           <stop offset="0%" stopColor="#ff6f61" />
@@ -825,17 +916,28 @@ const MethodChart = ({
 
       {series.map((item, index) => {
         const rowTop = 28 + index * rowHeight;
-        const labelY = rowTop + 14;
-        const successY = rowTop + 2;
-        const errorY = rowTop + 24;
+        const labelY = rowTop + 8;
+        const barY = rowTop;
         const successWidth = (item.successCount / maxValue) * chartUsableWidth;
+        const declinedWidth =
+          (item.declinedCount / maxValue) * chartUsableWidth;
         const errorWidth = (item.errorCount / maxValue) * chartUsableWidth;
-        const successLabelProps = getHorizontalCountLabelProps(
+        const declinedX = chartStartX + successWidth;
+        const errorX = declinedX + declinedWidth;
+        const successLabelProps = getStackedSegmentLabelProps(
+          chartStartX,
           successWidth,
           chartStartX,
           chartUsableWidth,
         );
-        const errorLabelProps = getHorizontalCountLabelProps(
+        const declinedLabelProps = getStackedSegmentLabelProps(
+          declinedX,
+          declinedWidth,
+          chartStartX,
+          chartUsableWidth,
+        );
+        const errorLabelProps = getStackedSegmentLabelProps(
+          errorX,
           errorWidth,
           chartStartX,
           chartUsableWidth,
@@ -863,7 +965,7 @@ const MethodChart = ({
           >
             <rect
               className="method-chart-hit-area"
-              height="42"
+              height="34"
               rx="12"
               width={chartWidth}
               x="0"
@@ -874,52 +976,66 @@ const MethodChart = ({
             </text>
             <rect
               className="method-chart-track"
-              height="14"
+              height="16"
               rx="7"
               width={chartUsableWidth}
               x={chartStartX}
-              y={successY}
-            />
-            <rect
-              className="method-chart-track"
-              height="14"
-              rx="7"
-              width={chartUsableWidth}
-              x={chartStartX}
-              y={errorY}
+              y={barY}
             />
             <rect
               fill="url(#methodSuccessBar)"
-              height="14"
+              height="16"
               rx="7"
               width={successWidth}
               x={chartStartX}
-              y={successY}
+              y={barY}
+            />
+            <rect
+              fill="url(#methodDeclinedBar)"
+              height="16"
+              rx="7"
+              width={declinedWidth}
+              x={declinedX}
+              y={barY}
             />
             <rect
               fill="url(#methodErrorBar)"
-              height="14"
+              height="16"
               rx="7"
               width={errorWidth}
-              x={chartStartX}
-              y={errorY}
+              x={errorX}
+              y={barY}
             />
-            <text
-              className="chart-count-label method-chart-count"
-              textAnchor={successLabelProps.textAnchor}
-              x={successLabelProps.x}
-              y={successY + 11}
-            >
-              {item.successCount}
-            </text>
-            <text
-              className="chart-count-label method-chart-count"
-              textAnchor={errorLabelProps.textAnchor}
-              x={errorLabelProps.x}
-              y={errorY + 11}
-            >
-              {item.errorCount}
-            </text>
+            {item.successCount > 0 ? (
+              <text
+                className="chart-count-label method-chart-count"
+                textAnchor={successLabelProps.textAnchor}
+                x={successLabelProps.x}
+                y={barY + 12}
+              >
+                {item.successCount}
+              </text>
+            ) : null}
+            {item.declinedCount > 0 ? (
+              <text
+                className="chart-count-label method-chart-count"
+                textAnchor={declinedLabelProps.textAnchor}
+                x={declinedLabelProps.x}
+                y={barY + 12}
+              >
+                {item.declinedCount}
+              </text>
+            ) : null}
+            {item.errorCount > 0 ? (
+              <text
+                className="chart-count-label method-chart-count"
+                textAnchor={errorLabelProps.textAnchor}
+                x={errorLabelProps.x}
+                y={barY + 12}
+              >
+                {item.errorCount}
+              </text>
+            ) : null}
           </g>
         );
       })}
@@ -954,15 +1070,12 @@ const BreakdownChart = ({
   }
 
   const chartWidth = 760;
-  const rowHeight = 56;
+  const rowHeight = 48;
   const chartHeight = Math.max(series.length * rowHeight + 32, 180);
   const labelWidth = 190;
   const chartStartX = labelWidth + 24;
   const chartUsableWidth = chartWidth - chartStartX - 54;
-  const maxValue = Math.max(
-    1,
-    ...series.map((item) => Math.max(item.successCount, item.errorCount)),
-  );
+  const maxValue = Math.max(1, ...series.map((item) => getOutcomeTotal(item)));
   const gridValues = [0, Math.ceil(maxValue / 2), maxValue];
 
   return (
@@ -982,6 +1095,16 @@ const BreakdownChart = ({
         >
           <stop offset="0%" stopColor="#7dd3a5" />
           <stop offset="100%" stopColor="#21704e" />
+        </linearGradient>
+        <linearGradient
+          id={`${chartId}-declined-bar`}
+          x1="0"
+          x2="1"
+          y1="0"
+          y2="0"
+        >
+          <stop offset="0%" stopColor="#f8d77a" />
+          <stop offset="100%" stopColor="#b87a09" />
         </linearGradient>
         <linearGradient id={`${chartId}-error-bar`} x1="0" x2="1" y1="0" y2="0">
           <stop offset="0%" stopColor="#ff6f61" />
@@ -1009,17 +1132,28 @@ const BreakdownChart = ({
 
       {series.map((item, index) => {
         const rowTop = 28 + index * rowHeight;
-        const labelY = rowTop + 14;
-        const successY = rowTop + 2;
-        const errorY = rowTop + 24;
+        const labelY = rowTop + 8;
+        const barY = rowTop;
         const successWidth = (item.successCount / maxValue) * chartUsableWidth;
+        const declinedWidth =
+          (item.declinedCount / maxValue) * chartUsableWidth;
         const errorWidth = (item.errorCount / maxValue) * chartUsableWidth;
-        const successLabelProps = getHorizontalCountLabelProps(
+        const declinedX = chartStartX + successWidth;
+        const errorX = declinedX + declinedWidth;
+        const successLabelProps = getStackedSegmentLabelProps(
+          chartStartX,
           successWidth,
           chartStartX,
           chartUsableWidth,
         );
-        const errorLabelProps = getHorizontalCountLabelProps(
+        const declinedLabelProps = getStackedSegmentLabelProps(
+          declinedX,
+          declinedWidth,
+          chartStartX,
+          chartUsableWidth,
+        );
+        const errorLabelProps = getStackedSegmentLabelProps(
+          errorX,
           errorWidth,
           chartStartX,
           chartUsableWidth,
@@ -1047,7 +1181,7 @@ const BreakdownChart = ({
           >
             <rect
               className="method-chart-hit-area"
-              height="42"
+              height="34"
               rx="12"
               width={chartWidth}
               x="0"
@@ -1058,52 +1192,66 @@ const BreakdownChart = ({
             </text>
             <rect
               className="method-chart-track"
-              height="14"
+              height="16"
               rx="7"
               width={chartUsableWidth}
               x={chartStartX}
-              y={successY}
-            />
-            <rect
-              className="method-chart-track"
-              height="14"
-              rx="7"
-              width={chartUsableWidth}
-              x={chartStartX}
-              y={errorY}
+              y={barY}
             />
             <rect
               fill={`url(#${chartId}-success-bar)`}
-              height="14"
+              height="16"
               rx="7"
               width={successWidth}
               x={chartStartX}
-              y={successY}
+              y={barY}
+            />
+            <rect
+              fill={`url(#${chartId}-declined-bar)`}
+              height="16"
+              rx="7"
+              width={declinedWidth}
+              x={declinedX}
+              y={barY}
             />
             <rect
               fill={`url(#${chartId}-error-bar)`}
-              height="14"
+              height="16"
               rx="7"
               width={errorWidth}
-              x={chartStartX}
-              y={errorY}
+              x={errorX}
+              y={barY}
             />
-            <text
-              className="chart-count-label method-chart-count"
-              textAnchor={successLabelProps.textAnchor}
-              x={successLabelProps.x}
-              y={successY + 11}
-            >
-              {item.successCount}
-            </text>
-            <text
-              className="chart-count-label method-chart-count"
-              textAnchor={errorLabelProps.textAnchor}
-              x={errorLabelProps.x}
-              y={errorY + 11}
-            >
-              {item.errorCount}
-            </text>
+            {item.successCount > 0 ? (
+              <text
+                className="chart-count-label method-chart-count"
+                textAnchor={successLabelProps.textAnchor}
+                x={successLabelProps.x}
+                y={barY + 12}
+              >
+                {item.successCount}
+              </text>
+            ) : null}
+            {item.declinedCount > 0 ? (
+              <text
+                className="chart-count-label method-chart-count"
+                textAnchor={declinedLabelProps.textAnchor}
+                x={declinedLabelProps.x}
+                y={barY + 12}
+              >
+                {item.declinedCount}
+              </text>
+            ) : null}
+            {item.errorCount > 0 ? (
+              <text
+                className="chart-count-label method-chart-count"
+                textAnchor={errorLabelProps.textAnchor}
+                x={errorLabelProps.x}
+                y={barY + 12}
+              >
+                {item.errorCount}
+              </text>
+            ) : null}
           </g>
         );
       })}
@@ -1228,15 +1376,20 @@ const SnapshotPie = ({
   );
 };
 
-const ErrorSummary = ({ items }: { items: readonly ErrorSummaryItem[] }) => {
+const OutcomeMessageSummary = ({
+  emptyDescription,
+  emptyTitle,
+  items,
+}: {
+  emptyDescription: string;
+  emptyTitle: string;
+  items: readonly ErrorSummaryItem[];
+}) => {
   if (items.length === 0) {
     return (
       <div className="empty-panel">
-        <h3>No errors in the selected range</h3>
-        <p>
-          The currently visible telemetry does not contain any non-empty
-          `errorCode` values.
-        </p>
+        <h3>{emptyTitle}</h3>
+        <p>{emptyDescription}</p>
       </div>
     );
   }
@@ -1422,6 +1575,7 @@ export default function App() {
     period: selectedPeriod,
     telemetry: timeChartTelemetry,
   });
+  const declinedSummary = buildDeclinedSummary(filteredTelemetry);
   const errorSummary = buildErrorSummary(filteredTelemetry);
   const devicePlatformSeries = buildDevicePlatformSeries(
     devicePlatformChartTelemetry,
@@ -2026,6 +2180,10 @@ export default function App() {
                 <strong>{errorSummary.length}</strong>
               </div>
               <div className="snapshot-meta-row">
+                <span>Declined messages</span>
+                <strong>{declinedSummary.length}</strong>
+              </div>
+              <div className="snapshot-meta-row">
                 <span>Wraps fetched</span>
                 <strong>{dashboard.fetchedWrapCount}</strong>
               </div>
@@ -2092,7 +2250,7 @@ export default function App() {
               <BreakdownChart
                 activeKeys={activeDevicePlatformKeys}
                 chartId="device-platform"
-                emptyDescription="The current filter combination has no success or error events."
+                emptyDescription="The current filter combination has no payment outcome events."
                 emptyTitle="No device platform data in the selected range"
                 label="device platform"
                 onItemClick={handleDevicePlatformChartClick}
@@ -2114,7 +2272,7 @@ export default function App() {
               <BreakdownChart
                 activeKeys={activeAppRuntimeKeys}
                 chartId="app-runtime"
-                emptyDescription="The current filter combination has no success or error events."
+                emptyDescription="The current filter combination has no payment outcome events."
                 emptyTitle="No app runtime data in the selected range"
                 label="app runtime"
                 onItemClick={handleAppRuntimeChartClick}
@@ -2136,7 +2294,7 @@ export default function App() {
               <BreakdownChart
                 activeKeys={activeAppVersionKeys}
                 chartId="app-version"
-                emptyDescription="The current filter combination has no success or error events."
+                emptyDescription="The current filter combination has no payment outcome events."
                 emptyTitle="No app version data in the selected range"
                 label="app version"
                 onItemClick={handleAppVersionChartClick}
@@ -2158,7 +2316,7 @@ export default function App() {
               <BreakdownChart
                 activeKeys={activeAppHostKeys}
                 chartId="app-host"
-                emptyDescription="The current filter combination has no success or error events."
+                emptyDescription="The current filter combination has no payment outcome events."
                 emptyTitle="No app host data in the selected range"
                 label="app host"
                 onItemClick={handleAppHostChartClick}
@@ -2174,7 +2332,24 @@ export default function App() {
               <p className="eyebrow">Error summary</p>
             </div>
           </div>
-          <ErrorSummary items={errorSummary} />
+          <OutcomeMessageSummary
+            emptyDescription="The currently visible telemetry does not contain any non-empty errorCode values."
+            emptyTitle="No errors in the selected range"
+            items={errorSummary}
+          />
+        </article>
+
+        <article className="panel panel-wide">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Declined summary</p>
+            </div>
+          </div>
+          <OutcomeMessageSummary
+            emptyDescription="The currently visible telemetry does not contain declined messages."
+            emptyTitle="No declined events in the selected range"
+            items={declinedSummary}
+          />
         </article>
       </section>
 
