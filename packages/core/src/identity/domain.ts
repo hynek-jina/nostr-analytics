@@ -156,5 +156,6 @@ export const OwnerRole = Schema.Literal(
   "contacts",
   "cashu",
   "messages",
+  "analytics",
 );
 export type OwnerRole = typeof OwnerRole.Type;

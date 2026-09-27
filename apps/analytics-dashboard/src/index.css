@@ -165,8 +165,25 @@ code {
   padding: 0 12px;
 }
 
+.page-sync-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: center;
+}
+
 .page-sync-text {
   font-size: 0.8rem;
+}
+
+.page-sync-detail {
+  font-size: 0.72rem;
+  opacity: 0.8;
+}
+
+.page-sync-error {
+  color: var(--error-accent);
+  font-size: 0.72rem;
 }
 
 .page-sync-refresh {
@@ -1062,6 +1079,10 @@ p {
     justify-content: flex-start;
     margin-top: 16px;
     padding: 0;
+  }
+
+  .page-sync-copy {
+    text-align: left;
   }
 
   .login-card-head {

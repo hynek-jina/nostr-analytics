@@ -227,11 +227,15 @@ const isStringArrayArray = (value: unknown): value is string[][] => {
   });
 };
 
-const isTelemetryMethod = (value: unknown): value is PaymentTelemetryMethod => {
+export const isTelemetryMethod = (
+  value: unknown,
+): value is PaymentTelemetryMethod => {
   return PAYMENT_METHODS.some((method) => method === value);
 };
 
-const isTelemetryPhase = (value: unknown): value is PaymentTelemetryPhase => {
+export const isTelemetryPhase = (
+  value: unknown,
+): value is PaymentTelemetryPhase => {
   return PAYMENT_PHASES.some((phase) => phase === value);
 };
 
@@ -241,24 +245,49 @@ const isLegacyTelemetryPlatform = (
   return LEGACY_PAYMENT_PLATFORMS.some((platform) => platform === value);
 };
 
-const isTelemetryDevicePlatform = (
+export const isTelemetryDevicePlatform = (
   value: unknown,
 ): value is PaymentTelemetryDevicePlatform => {
   return PAYMENT_DEVICE_PLATFORMS.some((platform) => platform === value);
 };
 
-const isTelemetryAppRuntime = (
+export const isTelemetryAppRuntime = (
   value: unknown,
 ): value is PaymentTelemetryAppRuntime => {
   return PAYMENT_APP_RUNTIMES.some((runtime) => runtime === value);
 };
 
-const isTelemetryStatus = (value: unknown): value is PaymentTelemetryStatus => {
+export const isTelemetryStatus = (
+  value: unknown,
+): value is PaymentTelemetryStatus => {
   return value === "ok" || value === "declined" || value === "error";
 };
 
 export const isMethodFilter = (value: string): value is MethodFilter => {
   return value === "all" || isTelemetryMethod(value);
+};
+
+/**
+ * Union of several telemetry lists keyed by report id. When the same report
+ * appears twice (a retried send or an archived copy), the newer createdAtSec
+ * wins. The result is sorted newest first.
+ */
+export const mergeTelemetryEvents = (
+  ...lists: readonly (readonly PaymentTelemetryEvent[])[]
+): PaymentTelemetryEvent[] => {
+  const byId = new Map<string, PaymentTelemetryEvent>();
+
+  for (const list of lists) {
+    for (const event of list) {
+      const existing = byId.get(event.id);
+      if (existing && existing.createdAtSec >= event.createdAtSec) continue;
+      byId.set(event.id, event);
+    }
+  }
+
+  return Array.from(byId.values()).sort(
+    (left, right) => right.createdAtSec - left.createdAtSec,
+  );
 };
 
 export const isGiftWrapAddressedToPubkey = (

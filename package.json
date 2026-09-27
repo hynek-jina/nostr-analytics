@@ -14,5 +14,8 @@
     "prettier": "bun run --workspaces --if-present prettier",
     "typecheck": "bun run --workspaces --if-present typecheck",
     "check-code": "bun run typecheck && bun run eslint && bun run prettier"
+  },
+  "patchedDependencies": {
+    "@evolu/sqlite-wasm@2.2.4": "patches/@evolu%2Fsqlite-wasm@2.2.4.patch"
   }
 }

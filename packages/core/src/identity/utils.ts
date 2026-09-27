@@ -7,6 +7,7 @@ import { Effect, Schema } from "effect";
 import { nip19 } from "nostr-tools";
 import { Slip39 } from "slip39-ts";
 import {
+  ANALYTICS_OWNER_PATH,
   CASHU_SEED_PATH,
   contactsOwnerPath,
   cashuOwnerPath,
@@ -92,6 +93,7 @@ const deriveOwnerPath = (
   index: OwnerLaneIndex = ZERO_OWNER_LANE_INDEX,
 ): string => {
   if (role === "meta") return META_OWNER_PATH;
+  if (role === "analytics") return ANALYTICS_OWNER_PATH;
   if (role === "contacts") return contactsOwnerPath(index);
   if (role === "cashu") return cashuOwnerPath(index);
   return messagesOwnerPath(index);

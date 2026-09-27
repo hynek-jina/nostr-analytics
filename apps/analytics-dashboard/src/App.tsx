@@ -3,6 +3,7 @@ import {
   useDeferredValue,
   useEffect,
   useEffectEvent,
+  useRef,
   useState,
 } from "react";
 import {
@@ -11,7 +12,11 @@ import {
   normalizeSlip39Seed,
   type DerivedIdentity,
 } from "./lib/identity";
-import { fetchAccountProfile, fetchTelemetryForCollector } from "./lib/nostr";
+import {
+  fetchAccountProfile,
+  fetchTelemetryForCollector,
+  type RelayFetchResult,
+} from "./lib/nostr";
 import {
   buildAppHostSeries,
   buildAppRuntimeSeries,
@@ -23,6 +28,7 @@ import {
   buildMethodSeries,
   buildMintSeries,
   filterTelemetryEvents,
+  mergeTelemetryEvents,
   PERIOD_FILTERS,
   type CategorySeriesItem,
   type DailySeriesItem,
@@ -33,11 +39,18 @@ import {
   type PaymentTelemetryEvent,
   type PeriodFilter,
 } from "./lib/telemetry";
+import {
+  createTelemetryStore,
+  EVOLU_SERVERS,
+  useStoredTelemetry,
+  type TelemetryStore,
+} from "./lib/telemetryStore";
 
 interface DashboardSnapshot {
   fetchedWrapCount: number;
   ignoredWrapCount: number;
   lastFetchedAtMs: number;
+  relayResults?: RelayFetchResult[];
   relayUrls: string[];
   telemetryEvents: PaymentTelemetryEvent[];
 }
@@ -93,6 +106,7 @@ const isDashboardSnapshot = (value: unknown): value is DashboardSnapshot => {
   const ignoredWrapCount = Reflect.get(value, "ignoredWrapCount");
   const lastFetchedAtMs = Reflect.get(value, "lastFetchedAtMs");
   const relayUrls = Reflect.get(value, "relayUrls");
+  const relayResults = Reflect.get(value, "relayResults");
   const telemetryEvents = Reflect.get(value, "telemetryEvents");
 
   return (
@@ -101,8 +115,33 @@ const isDashboardSnapshot = (value: unknown): value is DashboardSnapshot => {
     typeof lastFetchedAtMs === "number" &&
     Array.isArray(relayUrls) &&
     relayUrls.every((item) => typeof item === "string") &&
+    (relayResults === undefined || isRelayFetchResultList(relayResults)) &&
     Array.isArray(telemetryEvents)
   );
+};
+
+const isRelayFetchResultList = (
+  value: unknown,
+): value is RelayFetchResult[] => {
+  if (!Array.isArray(value)) return false;
+
+  return value.every((item) => {
+    if (!isObjectRecord(item)) return false;
+    const error = Reflect.get(item, "error");
+    return (
+      typeof Reflect.get(item, "url") === "string" &&
+      typeof Reflect.get(item, "wrapCount") === "number" &&
+      (typeof error === "string" || error === null)
+    );
+  });
+};
+
+const formatRelayHost = (relayUrl: string): string => {
+  try {
+    return new URL(relayUrl).host;
+  } catch {
+    return relayUrl;
+  }
 };
 
 const isAccountProfileState = (
@@ -1458,6 +1497,13 @@ export default function App() {
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedHour, setSelectedHour] = useState("");
   const [hydratedFromCache, setHydratedFromCache] = useState(false);
+  // The archive keeps every report ever fetched, so a relay dropping old wraps
+  // no longer empties the dashboard. The ref lets async flows that run before
+  // React re-renders (login, restore) reach the store they just opened.
+  const [store, setStore] = useState<TelemetryStore | null>(null);
+  const storeRef = useRef<TelemetryStore | null>(null);
+  const [storeError, setStoreError] = useState<string | null>(null);
+  const stored = useStoredTelemetry(store);
 
   const deferredDate = useDeferredValue(selectedDate);
   const deferredHour = useDeferredValue(selectedHour);
@@ -1467,7 +1513,10 @@ export default function App() {
   const deferredAppRuntimes = useDeferredValue(selectedAppRuntimes);
   const deferredAppVersions = useDeferredValue(selectedAppVersions);
   const deferredAppHosts = useDeferredValue(selectedAppHosts);
-  const telemetry = dashboard?.telemetryEvents ?? [];
+  const telemetry = mergeTelemetryEvents(
+    stored.events,
+    dashboard?.telemetryEvents ?? [],
+  );
   const timeRangeTelemetry = filterTelemetryEvents({
     date: deferredDate || null,
     method: ALL_METHODS_VALUE,
@@ -1674,6 +1723,45 @@ export default function App() {
     setSelectedHour("");
   }
 
+  function openStore(activeIdentity: DerivedIdentity) {
+    try {
+      const nextStore = createTelemetryStore(activeIdentity.evoluOwnerMnemonic);
+      storeRef.current = nextStore;
+      setStore(nextStore);
+      setStoreError(null);
+    } catch (error) {
+      storeRef.current = null;
+      setStore(null);
+      setStoreError(
+        error instanceof Error
+          ? error.message
+          : "Could not open the telemetry archive.",
+      );
+    }
+  }
+
+  function closeStore() {
+    storeRef.current = null;
+    setStore(null);
+    setStoreError(null);
+  }
+
+  function archiveTelemetry(events: readonly PaymentTelemetryEvent[]) {
+    const activeStore = storeRef.current;
+    if (!activeStore) return;
+
+    activeStore
+      .saveEvents(events)
+      .then(() => setStoreError(null))
+      .catch((error: unknown) => {
+        setStoreError(
+          error instanceof Error
+            ? error.message
+            : "Could not save telemetry to the archive.",
+        );
+      });
+  }
+
   function persistCurrentSession(args: {
     activeIdentity: DerivedIdentity;
     dashboardSnapshot?: DashboardSnapshot | null;
@@ -1750,6 +1838,7 @@ export default function App() {
         fetchedWrapCount: result.fetchedWrapCount,
         ignoredWrapCount: result.ignoredWrapCount,
         lastFetchedAtMs: Date.now(),
+        relayResults: result.relayResults,
         relayUrls: result.relayUrls,
         telemetryEvents: result.telemetryEvents,
       };
@@ -1758,6 +1847,7 @@ export default function App() {
         setDashboard(nextDashboard);
         setLoadPhase("ready");
       });
+      archiveTelemetry(result.telemetryEvents);
       persistCurrentSession({
         activeIdentity,
         dashboardSnapshot: nextDashboard,
@@ -1802,6 +1892,7 @@ export default function App() {
     }
 
     setIdentity(restoredIdentity);
+    openStore(restoredIdentity);
     if (persistedSession.publicKeyHex === restoredIdentity.publicKeyHex) {
       setProfile(persistedSession.profile);
 
@@ -1863,6 +1954,7 @@ export default function App() {
         : null;
 
     setIdentity(nextIdentity);
+    openStore(nextIdentity);
     setProfile(cachedSession?.profile ?? { imageUrl: null, name: null });
     setDashboard(cachedSession?.dashboard ?? null);
     setHydratedFromCache(Boolean(cachedSession?.dashboard));
@@ -1885,6 +1977,7 @@ export default function App() {
   function handleLogout() {
     setAccountMenuOpen(false);
     clearPersistedSession();
+    closeStore();
     setIdentity(null);
     setProfile({ imageUrl: null, name: null });
     setDashboard(null);
@@ -2191,6 +2284,10 @@ export default function App() {
                 <span>Ignored wraps</span>
                 <strong>{dashboard.ignoredWrapCount}</strong>
               </div>
+              <div className="snapshot-meta-row">
+                <span>Archived events</span>
+                <strong>{stored.ready ? stored.events.length : "…"}</strong>
+              </div>
             </div>
           ) : (
             <div className="empty-panel">
@@ -2355,10 +2452,37 @@ export default function App() {
 
       {identity && dashboard ? (
         <section className="page-sync-footer">
-          <p className="page-sync-text">
-            {hydratedFromCache ? "Cached sync" : "Last sync"}{" "}
-            {formatTimestamp(dashboard.lastFetchedAtMs)}
-          </p>
+          <div className="page-sync-copy">
+            <p className="page-sync-text">
+              {hydratedFromCache ? "Cached sync" : "Last sync"}{" "}
+              {formatTimestamp(dashboard.lastFetchedAtMs)}
+            </p>
+            {dashboard.relayResults ? (
+              <p className="page-sync-text page-sync-detail">
+                {dashboard.relayResults
+                  .map(
+                    (relay) =>
+                      `${formatRelayHost(relay.url)}: ${relay.wrapCount}${
+                        relay.error ? " (incomplete)" : ""
+                      }`,
+                  )
+                  .join(" · ")}
+              </p>
+            ) : null}
+            <p className="page-sync-text page-sync-detail">
+              Archive {EVOLU_SERVERS.map(formatRelayHost).join(", ")}
+              {stored.ready
+                ? ` · ${stored.events.length} events`
+                : store
+                  ? " · opening…"
+                  : " · unavailable"}
+            </p>
+            {(storeError ?? stored.error) ? (
+              <p className="page-sync-text page-sync-error" role="alert">
+                {storeError ?? stored.error}
+              </p>
+            ) : null}
+          </div>
           <button
             className="page-sync-refresh"
             disabled={loadPhase === "loading"}

@@ -1,14 +1,18 @@
 import {
+  deriveOwnerMnemonicFromMasterSecret,
   encodeNostrNpub,
   encodeNostrNsec,
   IdentityProvider,
   looksLikeSlip39Share,
   MasterSecretProvider,
   parseSlip39Share,
+  recoverMasterSecretFromSlip39Share,
 } from "@linky/core/identity";
 import { Effect, Layer } from "effect";
 
 export interface DerivedIdentity {
+  /** BIP-39 mnemonic of the Evolu owner that archives telemetry. */
+  evoluOwnerMnemonic: string;
   npub: string;
   nsec: string;
   privateKeyBytes: Uint8Array;
@@ -34,19 +38,26 @@ export const deriveIdentityFromSlip39 = async (
   try {
     const normalized = normalizeSlip39Seed(value);
     const share = await Effect.runPromise(parseSlip39Share(normalized));
-    const identityLayer = Layer.provideMerge(
+    const masterSecret = await Effect.runPromise(
+      recoverMasterSecretFromSlip39Share(share),
+    );
+    const identityLayer = Layer.provide(
       IdentityProvider.Live,
-      MasterSecretProvider.fromSlip39Share(share),
+      MasterSecretProvider.make(masterSecret),
     );
     const identity = await Effect.runPromise(
       Effect.provide(IdentityProvider, identityLayer),
     );
-    const [npub, nsec] = await Promise.all([
+    const [npub, nsec, evoluOwnerMnemonic] = await Promise.all([
       Effect.runPromise(encodeNostrNpub(identity.nostrPublicKey)),
       Effect.runPromise(encodeNostrNsec(identity.nostrSigningKey)),
+      Effect.runPromise(
+        deriveOwnerMnemonicFromMasterSecret(masterSecret, "analytics"),
+      ),
     ]);
 
     return {
+      evoluOwnerMnemonic,
       npub,
       nsec,
       privateKeyBytes: Uint8Array.from(identity.nostrSigningKey),
