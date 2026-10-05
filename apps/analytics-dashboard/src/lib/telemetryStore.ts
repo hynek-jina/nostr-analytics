@@ -5,6 +5,7 @@ import {
   isTelemetryAppRuntime,
   isTelemetryDevicePlatform,
   isTelemetryMethod,
+  isTelemetryPaymentType,
   isTelemetryPhase,
   isTelemetryStatus,
   type PaymentTelemetryEvent,
@@ -34,6 +35,9 @@ const schema = {
     status: Evolu.NonEmptyString100,
     method: Evolu.NonEmptyString100,
     phase: Evolu.NonEmptyString100,
+    // Added later; Evolu adds the column to existing databases on open and
+    // older rows read back as null.
+    paymentType: Evolu.nullOr(Evolu.NonEmptyString100),
     mint: Evolu.nullOr(Evolu.NonEmptyString1000),
     amountBucket: Evolu.nullOr(Evolu.NonEmptyString100),
     feeBucket: Evolu.nullOr(Evolu.NonEmptyString100),
@@ -131,6 +135,7 @@ export const createTelemetryStore = (ownerMnemonic: string) => {
             status: event.status,
             method: event.method,
             phase: event.phase,
+            paymentType: event.paymentType,
             mint: clip(event.mint, 1000),
             amountBucket: clip(event.amountBucket, 100),
             feeBucket: clip(event.feeBucket, 100),
@@ -212,6 +217,9 @@ const toTelemetryEvent = (row: TelemetryRow): PaymentTelemetryEvent | null => {
     id: row.eventId,
     method: row.method,
     mint: row.mint,
+    paymentType: isTelemetryPaymentType(row.paymentType)
+      ? row.paymentType
+      : null,
     phase: row.phase,
     senderPubkey: row.senderPubkey,
     status: row.status,

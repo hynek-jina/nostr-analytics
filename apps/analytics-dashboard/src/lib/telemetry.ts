@@ -28,6 +28,17 @@ export type PaymentTelemetryDevicePlatform =
   | "windows"
   | "unknown";
 export type PaymentTelemetryAppRuntime = "native" | "pwa" | "web";
+/**
+ * Outgoing-payment classification reported by Linky since the field was
+ * added; independent of `method` (the rail). Receives, restores, top-ups and
+ * older reports carry no payment type.
+ */
+export type PaymentTelemetryPaymentType =
+  | "contact"
+  | "lightning"
+  | "proxy"
+  | "recurring"
+  | "request";
 export type PaymentTelemetryStatus = "declined" | "error" | "ok";
 export type PeriodFilter = "today" | "7d" | "30d";
 export type MethodFilter = PaymentTelemetryMethod | "all";
@@ -64,6 +75,21 @@ export const PAYMENT_APP_RUNTIMES: readonly PaymentTelemetryAppRuntime[] = [
   "pwa",
   "web",
 ];
+export const PAYMENT_TYPES: readonly PaymentTelemetryPaymentType[] = [
+  "contact",
+  "lightning",
+  "proxy",
+  "recurring",
+  "request",
+];
+export const PAYMENT_TYPE_LABELS: Record<PaymentTelemetryPaymentType, string> =
+  {
+    contact: "Payment to contact",
+    lightning: "Lightning payment",
+    proxy: "Proxy payment",
+    recurring: "Recurring payment",
+    request: "Payment request",
+  };
 export const PERIOD_FILTERS: readonly PeriodFilter[] = ["today", "7d", "30d"];
 
 export interface PaymentTelemetryEvent {
@@ -80,6 +106,7 @@ export interface PaymentTelemetryEvent {
   id: string;
   method: PaymentTelemetryMethod;
   mint: string | null;
+  paymentType: PaymentTelemetryPaymentType | null;
   phase: PaymentTelemetryPhase;
   senderPubkey: string;
   status: PaymentTelemetryStatus;
@@ -257,6 +284,12 @@ export const isTelemetryAppRuntime = (
   return PAYMENT_APP_RUNTIMES.some((runtime) => runtime === value);
 };
 
+export const isTelemetryPaymentType = (
+  value: unknown,
+): value is PaymentTelemetryPaymentType => {
+  return PAYMENT_TYPES.some((paymentType) => paymentType === value);
+};
+
 export const isTelemetryStatus = (
   value: unknown,
 ): value is PaymentTelemetryStatus => {
@@ -318,6 +351,7 @@ export const parsePaymentTelemetryContent = (
   const status = Reflect.get(parsed, "status");
   const method = Reflect.get(parsed, "method");
   const phase = Reflect.get(parsed, "phase");
+  const paymentTypeValue = Reflect.get(parsed, "paymentType");
   const amountBucket = Reflect.get(parsed, "amountBucket");
   const feeBucket = Reflect.get(parsed, "feeBucket");
   const errorCode = Reflect.get(parsed, "errorCode");
@@ -381,6 +415,11 @@ export const parsePaymentTelemetryContent = (
       : isStringOrNull(appVersionValue)
         ? toTrimmedStringOrNull(appVersionValue)
         : false;
+  // Missing, null and unrecognized payment types all read as "not reported";
+  // this field never makes a report invalid.
+  const paymentType = isTelemetryPaymentType(paymentTypeValue)
+    ? paymentTypeValue
+    : null;
 
   if (typeof id !== "string" || id.trim().length === 0) return null;
   if (
@@ -419,6 +458,7 @@ export const parsePaymentTelemetryContent = (
     id,
     method,
     mint,
+    paymentType,
     phase,
     status,
   };
@@ -809,6 +849,19 @@ export const buildMethodSeries = (
     if (rightTotal !== leftTotal) return rightTotal - leftTotal;
     return left.method.localeCompare(right.method);
   });
+};
+
+export const buildPaymentTypeSeries = (
+  telemetry: readonly PaymentTelemetryEvent[],
+): CategorySeriesItem[] => {
+  return buildCategorySeries(
+    telemetry,
+    (event) => event.paymentType,
+    (value) =>
+      isTelemetryPaymentType(value)
+        ? PAYMENT_TYPE_LABELS[value]
+        : "Not reported",
+  );
 };
 
 export const buildDevicePlatformSeries = (
