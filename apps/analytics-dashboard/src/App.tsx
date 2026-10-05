@@ -27,8 +27,11 @@ import {
   buildErrorSummary,
   buildMethodSeries,
   buildMintSeries,
+  buildPaymentTypeSeries,
   filterTelemetryEvents,
+  isTelemetryPaymentType,
   mergeTelemetryEvents,
+  PAYMENT_TYPE_LABELS,
   PERIOD_FILTERS,
   type CategorySeriesItem,
   type DailySeriesItem,
@@ -90,6 +93,7 @@ const ALL_METHODS_VALUE = "all";
 const UNKNOWN_MINT_FILTER_VALUE = "__unknown__";
 const UNKNOWN_DEVICE_PLATFORM_FILTER_VALUE = "__unknown_device_platform__";
 const UNKNOWN_APP_RUNTIME_FILTER_VALUE = "__unknown_app_runtime__";
+const UNKNOWN_PAYMENT_TYPE_FILTER_VALUE = "__unknown_payment_type__";
 const UNKNOWN_APP_VERSION_FILTER_VALUE = "__unknown_app_version__";
 const UNKNOWN_APP_HOST_FILTER_VALUE = "__unknown_app_host__";
 
@@ -271,6 +275,13 @@ const formatMethodLabel = (method: MethodFilter): string => {
   return METHOD_LABELS[method];
 };
 
+const formatPaymentTypeLabel = (paymentType: string | null): string => {
+  if (!paymentType) return "Not reported";
+  return isTelemetryPaymentType(paymentType)
+    ? PAYMENT_TYPE_LABELS[paymentType]
+    : paymentType;
+};
+
 const formatDevicePlatformLabel = (devicePlatform: string | null): string => {
   if (!devicePlatform) return "Unknown device";
 
@@ -315,6 +326,20 @@ const applyMethodFilter = (
   }
 
   return telemetry.filter((item) => methods.includes(item.method));
+};
+
+const applyPaymentTypeFilter = (
+  telemetry: readonly PaymentTelemetryEvent[],
+  paymentTypes: readonly string[],
+): PaymentTelemetryEvent[] => {
+  if (paymentTypes.length === 0) {
+    return [...telemetry];
+  }
+
+  return telemetry.filter((item) => {
+    const paymentType = item.paymentType ?? UNKNOWN_PAYMENT_TYPE_FILTER_VALUE;
+    return paymentTypes.includes(paymentType);
+  });
 };
 
 const applyMintFilter = (
@@ -1487,6 +1512,9 @@ export default function App() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodFilter>("7d");
   const [selectedMethods, setSelectedMethods] = useState<MethodFilter[]>([]);
+  const [selectedPaymentTypes, setSelectedPaymentTypes] = useState<string[]>(
+    [],
+  );
   const [selectedMints, setSelectedMints] = useState<string[]>([]);
   const [selectedDevicePlatforms, setSelectedDevicePlatforms] = useState<
     string[]
@@ -1508,6 +1536,7 @@ export default function App() {
   const deferredDate = useDeferredValue(selectedDate);
   const deferredHour = useDeferredValue(selectedHour);
   const deferredMethods = useDeferredValue(selectedMethods);
+  const deferredPaymentTypes = useDeferredValue(selectedPaymentTypes);
   const deferredMints = useDeferredValue(selectedMints);
   const deferredDevicePlatforms = useDeferredValue(selectedDevicePlatforms);
   const deferredAppRuntimes = useDeferredValue(selectedAppRuntimes);
@@ -1527,70 +1556,36 @@ export default function App() {
     if (!deferredHour) return true;
     return toHourKey(new Date(item.createdAtSec * 1000)) === deferredHour;
   });
-  const timeChartTelemetry = applyAppVersionFilter(
-    applyAppRuntimeFilter(
-      applyDevicePlatformFilter(
-        applyMintFilter(
-          applyMethodFilter(timeRangeTelemetry, deferredMethods),
-          deferredMints,
+  const timeChartTelemetry = applyPaymentTypeFilter(
+    applyAppVersionFilter(
+      applyAppRuntimeFilter(
+        applyDevicePlatformFilter(
+          applyMintFilter(
+            applyMethodFilter(timeRangeTelemetry, deferredMethods),
+            deferredMints,
+          ),
+          deferredDevicePlatforms,
         ),
-        deferredDevicePlatforms,
+        deferredAppRuntimes,
       ),
-      deferredAppRuntimes,
+      deferredAppVersions,
     ),
-    deferredAppVersions,
+    deferredPaymentTypes,
   );
-  const methodChartTelemetry = applyAppVersionFilter(
-    applyAppRuntimeFilter(
-      applyDevicePlatformFilter(
-        applyMintFilter(hourFilteredTelemetry, deferredMints),
-        deferredDevicePlatforms,
+  const methodChartTelemetry = applyPaymentTypeFilter(
+    applyAppVersionFilter(
+      applyAppRuntimeFilter(
+        applyDevicePlatformFilter(
+          applyMintFilter(hourFilteredTelemetry, deferredMints),
+          deferredDevicePlatforms,
+        ),
+        deferredAppRuntimes,
       ),
-      deferredAppRuntimes,
+      deferredAppVersions,
     ),
-    deferredAppVersions,
+    deferredPaymentTypes,
   );
-  const mintChartTelemetry = applyAppVersionFilter(
-    applyAppRuntimeFilter(
-      applyDevicePlatformFilter(
-        applyMethodFilter(hourFilteredTelemetry, deferredMethods),
-        deferredDevicePlatforms,
-      ),
-      deferredAppRuntimes,
-    ),
-    deferredAppVersions,
-  );
-  const devicePlatformChartTelemetry = applyAppVersionFilter(
-    applyAppRuntimeFilter(
-      applyMintFilter(
-        applyMethodFilter(hourFilteredTelemetry, deferredMethods),
-        deferredMints,
-      ),
-      deferredAppRuntimes,
-    ),
-    deferredAppVersions,
-  );
-  const appRuntimeChartTelemetry = applyAppVersionFilter(
-    applyDevicePlatformFilter(
-      applyMintFilter(
-        applyMethodFilter(hourFilteredTelemetry, deferredMethods),
-        deferredMints,
-      ),
-      deferredDevicePlatforms,
-    ),
-    deferredAppVersions,
-  );
-  const appVersionChartTelemetry = applyAppRuntimeFilter(
-    applyDevicePlatformFilter(
-      applyMintFilter(
-        applyMethodFilter(hourFilteredTelemetry, deferredMethods),
-        deferredMints,
-      ),
-      deferredDevicePlatforms,
-    ),
-    deferredAppRuntimes,
-  );
-  const appHostChartTelemetry = applyAppVersionFilter(
+  const paymentTypeChartTelemetry = applyAppVersionFilter(
     applyAppRuntimeFilter(
       applyDevicePlatformFilter(
         applyMintFilter(
@@ -1603,7 +1598,59 @@ export default function App() {
     ),
     deferredAppVersions,
   );
-  const filteredTelemetry = applyAppHostFilter(
+  const mintChartTelemetry = applyPaymentTypeFilter(
+    applyAppVersionFilter(
+      applyAppRuntimeFilter(
+        applyDevicePlatformFilter(
+          applyMethodFilter(hourFilteredTelemetry, deferredMethods),
+          deferredDevicePlatforms,
+        ),
+        deferredAppRuntimes,
+      ),
+      deferredAppVersions,
+    ),
+    deferredPaymentTypes,
+  );
+  const devicePlatformChartTelemetry = applyPaymentTypeFilter(
+    applyAppVersionFilter(
+      applyAppRuntimeFilter(
+        applyMintFilter(
+          applyMethodFilter(hourFilteredTelemetry, deferredMethods),
+          deferredMints,
+        ),
+        deferredAppRuntimes,
+      ),
+      deferredAppVersions,
+    ),
+    deferredPaymentTypes,
+  );
+  const appRuntimeChartTelemetry = applyPaymentTypeFilter(
+    applyAppVersionFilter(
+      applyDevicePlatformFilter(
+        applyMintFilter(
+          applyMethodFilter(hourFilteredTelemetry, deferredMethods),
+          deferredMints,
+        ),
+        deferredDevicePlatforms,
+      ),
+      deferredAppVersions,
+    ),
+    deferredPaymentTypes,
+  );
+  const appVersionChartTelemetry = applyPaymentTypeFilter(
+    applyAppRuntimeFilter(
+      applyDevicePlatformFilter(
+        applyMintFilter(
+          applyMethodFilter(hourFilteredTelemetry, deferredMethods),
+          deferredMints,
+        ),
+        deferredDevicePlatforms,
+      ),
+      deferredAppRuntimes,
+    ),
+    deferredPaymentTypes,
+  );
+  const appHostChartTelemetry = applyPaymentTypeFilter(
     applyAppVersionFilter(
       applyAppRuntimeFilter(
         applyDevicePlatformFilter(
@@ -1617,7 +1664,26 @@ export default function App() {
       ),
       deferredAppVersions,
     ),
-    deferredAppHosts,
+    deferredPaymentTypes,
+  );
+  const filteredTelemetry = applyPaymentTypeFilter(
+    applyAppHostFilter(
+      applyAppVersionFilter(
+        applyAppRuntimeFilter(
+          applyDevicePlatformFilter(
+            applyMintFilter(
+              applyMethodFilter(hourFilteredTelemetry, deferredMethods),
+              deferredMints,
+            ),
+            deferredDevicePlatforms,
+          ),
+          deferredAppRuntimes,
+        ),
+        deferredAppVersions,
+      ),
+      deferredAppHosts,
+    ),
+    deferredPaymentTypes,
   );
   const dailySeries = buildDailySeries({
     date: deferredDate || null,
@@ -1634,6 +1700,7 @@ export default function App() {
   const appHostSeries = buildAppHostSeries(appHostChartTelemetry);
   const mintSeries = buildMintSeries(mintChartTelemetry);
   const methodSeries = buildMethodSeries(methodChartTelemetry);
+  const paymentTypeSeries = buildPaymentTypeSeries(paymentTypeChartTelemetry);
   const totalEventCount = filteredTelemetry.length;
   const successCount = filteredTelemetry.filter(
     (item) => item.status === "ok",
@@ -1648,6 +1715,7 @@ export default function App() {
   const activeTimeBucketKey = deferredHour || deferredDate || null;
   const activeMintKeys = deferredMints;
   const activeMethods = deferredMethods;
+  const activePaymentTypeKeys = deferredPaymentTypes;
   const activeDevicePlatformKeys = deferredDevicePlatforms;
   const activeAppRuntimeKeys = deferredAppRuntimes;
   const activeAppVersionKeys = deferredAppVersions;
@@ -1674,6 +1742,14 @@ export default function App() {
 
   function handleMethodChartClick(method: MethodFilter) {
     setSelectedMethods((current) => toggleSelection(current, method));
+  }
+
+  function handlePaymentTypeChartClick(paymentType: string) {
+    const nextValue =
+      paymentType === "__unknown__"
+        ? UNKNOWN_PAYMENT_TYPE_FILTER_VALUE
+        : paymentType;
+    setSelectedPaymentTypes((current) => toggleSelection(current, nextValue));
   }
 
   function handleDevicePlatformChartClick(devicePlatform: string) {
@@ -1986,6 +2062,7 @@ export default function App() {
     setSelectedHour("");
     setSelectedMints([]);
     setSelectedMethods([]);
+    setSelectedPaymentTypes([]);
     setSelectedDevicePlatforms([]);
     setSelectedAppRuntimes([]);
     setSelectedAppVersions([]);
@@ -2164,6 +2241,25 @@ export default function App() {
                 Method: {formatMethodLabel(selectedMethod)}
               </button>
             ))}
+            {selectedPaymentTypes.map((selectedPaymentType) => (
+              <button
+                className="active-filter-chip active-filter-chip-button"
+                key={`payment-type-${selectedPaymentType}`}
+                onClick={() =>
+                  handlePaymentTypeChartClick(
+                    selectedPaymentType === UNKNOWN_PAYMENT_TYPE_FILTER_VALUE
+                      ? "__unknown__"
+                      : selectedPaymentType,
+                  )
+                }
+                type="button"
+              >
+                Payment type:{" "}
+                {selectedPaymentType === UNKNOWN_PAYMENT_TYPE_FILTER_VALUE
+                  ? "Not reported"
+                  : formatPaymentTypeLabel(selectedPaymentType)}
+              </button>
+            ))}
             {selectedDevicePlatforms.map((selectedDevicePlatform) => (
               <button
                 className="active-filter-chip active-filter-chip-button"
@@ -2312,6 +2408,28 @@ export default function App() {
                 activeMethods={activeMethods}
                 onMethodClick={handleMethodChartClick}
                 series={methodSeries}
+              />
+            </div>
+          </div>
+        </article>
+
+        <article className="panel panel-wide">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Payment type</p>
+            </div>
+          </div>
+
+          <div className="chart-shell">
+            <div className="chart-scroll-wrap">
+              <BreakdownChart
+                activeKeys={activePaymentTypeKeys}
+                chartId="payment-type"
+                emptyDescription="The current filter combination has no payment outcome events."
+                emptyTitle="No payment type data in the selected range"
+                label="payment type"
+                onItemClick={handlePaymentTypeChartClick}
+                series={paymentTypeSeries}
               />
             </div>
           </div>
