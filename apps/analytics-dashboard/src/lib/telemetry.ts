@@ -29,16 +29,25 @@ export type PaymentTelemetryDevicePlatform =
   | "unknown";
 export type PaymentTelemetryAppRuntime = "native" | "pwa" | "web";
 /**
- * Outgoing-payment classification reported by Linky since the field was
- * added; independent of `method` (the rail). Receives, restores, top-ups and
- * older reports carry no payment type.
+ * Payment classification reported by Linky since the field was added;
+ * independent of `method` (the rail). The first six are outgoing, the rest
+ * incoming; older reports carry no payment type.
  */
 export type PaymentTelemetryPaymentType =
   | "contact"
   | "lightning"
   | "proxy"
   | "recurring"
-  | "request";
+  | "request"
+  | "issue"
+  | "received_contact"
+  | "received_request"
+  | "received_token"
+  | "received_lightning"
+  | "topup"
+  | "restore"
+  | "request_sent";
+export type PaymentTelemetryDirection = "in" | "out";
 export type PaymentTelemetryStatus = "declined" | "error" | "ok";
 export type PeriodFilter = "today" | "7d" | "30d";
 export type MethodFilter = PaymentTelemetryMethod | "all";
@@ -81,15 +90,39 @@ export const PAYMENT_TYPES: readonly PaymentTelemetryPaymentType[] = [
   "proxy",
   "recurring",
   "request",
+  "issue",
+  "received_contact",
+  "received_request",
+  "received_token",
+  "received_lightning",
+  "topup",
+  "restore",
+  "request_sent",
 ];
 export const PAYMENT_TYPE_LABELS: Record<PaymentTelemetryPaymentType, string> =
   {
-    contact: "Payment to contact",
+    contact: "Sent to contact",
     lightning: "Lightning payment",
     proxy: "Proxy payment",
     recurring: "Recurring payment",
-    request: "Payment request",
+    request: "Paid payment request",
+    issue: "Issued token",
+    received_contact: "Received from contact",
+    received_request: "Received for own request",
+    received_token: "Received token",
+    received_lightning: "Received to Lightning address",
+    topup: "Top-up",
+    restore: "Restore",
+    request_sent: "Payment request sent",
   };
+export const PAYMENT_DIRECTIONS: readonly PaymentTelemetryDirection[] = [
+  "out",
+  "in",
+];
+export const DIRECTION_LABELS: Record<PaymentTelemetryDirection, string> = {
+  in: "Incoming",
+  out: "Outgoing",
+};
 export const PERIOD_FILTERS: readonly PeriodFilter[] = ["today", "7d", "30d"];
 
 export interface PaymentTelemetryEvent {
@@ -99,7 +132,7 @@ export interface PaymentTelemetryEvent {
   appVersion: string | null;
   createdAtSec: number;
   devicePlatform: PaymentTelemetryDevicePlatform | null;
-  direction: "in" | "out";
+  direction: PaymentTelemetryDirection;
   errorCode: string | null;
   errorDetail: string | null;
   feeBucket: string | null;
@@ -290,6 +323,12 @@ export const isTelemetryPaymentType = (
   return PAYMENT_TYPES.some((paymentType) => paymentType === value);
 };
 
+export const isTelemetryDirection = (
+  value: unknown,
+): value is PaymentTelemetryDirection => {
+  return PAYMENT_DIRECTIONS.some((direction) => direction === value);
+};
+
 export const isTelemetryStatus = (
   value: unknown,
 ): value is PaymentTelemetryStatus => {
@@ -429,7 +468,7 @@ export const parsePaymentTelemetryContent = (
   ) {
     return null;
   }
-  if (direction !== "in" && direction !== "out") return null;
+  if (!isTelemetryDirection(direction)) return null;
   if (!isTelemetryStatus(status)) return null;
   if (!isTelemetryMethod(method)) return null;
   if (!isTelemetryPhase(phase)) return null;
@@ -861,6 +900,17 @@ export const buildPaymentTypeSeries = (
       isTelemetryPaymentType(value)
         ? PAYMENT_TYPE_LABELS[value]
         : "Not reported",
+  );
+};
+
+export const buildDirectionSeries = (
+  telemetry: readonly PaymentTelemetryEvent[],
+): CategorySeriesItem[] => {
+  return buildCategorySeries(
+    telemetry,
+    (event) => event.direction,
+    (value) =>
+      isTelemetryDirection(value) ? DIRECTION_LABELS[value] : "Unknown",
   );
 };
 
