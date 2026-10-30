@@ -24,11 +24,14 @@ import {
   buildDailySeries,
   buildDeclinedSummary,
   buildDevicePlatformSeries,
+  buildDirectionSeries,
   buildErrorSummary,
   buildMethodSeries,
   buildMintSeries,
   buildPaymentTypeSeries,
+  DIRECTION_LABELS,
   filterTelemetryEvents,
+  isTelemetryDirection,
   isTelemetryPaymentType,
   mergeTelemetryEvents,
   PAYMENT_TYPE_LABELS,
@@ -275,6 +278,12 @@ const formatMethodLabel = (method: MethodFilter): string => {
   return METHOD_LABELS[method];
 };
 
+const formatDirectionLabel = (direction: string): string => {
+  return isTelemetryDirection(direction)
+    ? DIRECTION_LABELS[direction]
+    : direction;
+};
+
 const formatPaymentTypeLabel = (paymentType: string | null): string => {
   if (!paymentType) return "Not reported";
   return isTelemetryPaymentType(paymentType)
@@ -326,6 +335,17 @@ const applyMethodFilter = (
   }
 
   return telemetry.filter((item) => methods.includes(item.method));
+};
+
+const applyDirectionFilter = (
+  telemetry: readonly PaymentTelemetryEvent[],
+  directions: readonly string[],
+): PaymentTelemetryEvent[] => {
+  if (directions.length === 0) {
+    return [...telemetry];
+  }
+
+  return telemetry.filter((item) => directions.includes(item.direction));
 };
 
 const applyPaymentTypeFilter = (
@@ -1512,6 +1532,7 @@ export default function App() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodFilter>("7d");
   const [selectedMethods, setSelectedMethods] = useState<MethodFilter[]>([]);
+  const [selectedDirections, setSelectedDirections] = useState<string[]>([]);
   const [selectedPaymentTypes, setSelectedPaymentTypes] = useState<string[]>(
     [],
   );
@@ -1536,6 +1557,7 @@ export default function App() {
   const deferredDate = useDeferredValue(selectedDate);
   const deferredHour = useDeferredValue(selectedHour);
   const deferredMethods = useDeferredValue(selectedMethods);
+  const deferredDirections = useDeferredValue(selectedDirections);
   const deferredPaymentTypes = useDeferredValue(selectedPaymentTypes);
   const deferredMints = useDeferredValue(selectedMints);
   const deferredDevicePlatforms = useDeferredValue(selectedDevicePlatforms);
@@ -1556,12 +1578,47 @@ export default function App() {
     if (!deferredHour) return true;
     return toHourKey(new Date(item.createdAtSec * 1000)) === deferredHour;
   });
-  const timeChartTelemetry = applyPaymentTypeFilter(
+  const timeChartTelemetry = applyDirectionFilter(
+    applyPaymentTypeFilter(
+      applyAppVersionFilter(
+        applyAppRuntimeFilter(
+          applyDevicePlatformFilter(
+            applyMintFilter(
+              applyMethodFilter(timeRangeTelemetry, deferredMethods),
+              deferredMints,
+            ),
+            deferredDevicePlatforms,
+          ),
+          deferredAppRuntimes,
+        ),
+        deferredAppVersions,
+      ),
+      deferredPaymentTypes,
+    ),
+    deferredDirections,
+  );
+  const methodChartTelemetry = applyDirectionFilter(
+    applyPaymentTypeFilter(
+      applyAppVersionFilter(
+        applyAppRuntimeFilter(
+          applyDevicePlatformFilter(
+            applyMintFilter(hourFilteredTelemetry, deferredMints),
+            deferredDevicePlatforms,
+          ),
+          deferredAppRuntimes,
+        ),
+        deferredAppVersions,
+      ),
+      deferredPaymentTypes,
+    ),
+    deferredDirections,
+  );
+  const paymentTypeChartTelemetry = applyDirectionFilter(
     applyAppVersionFilter(
       applyAppRuntimeFilter(
         applyDevicePlatformFilter(
           applyMintFilter(
-            applyMethodFilter(timeRangeTelemetry, deferredMethods),
+            applyMethodFilter(hourFilteredTelemetry, deferredMethods),
             deferredMints,
           ),
           deferredDevicePlatforms,
@@ -1570,87 +1627,9 @@ export default function App() {
       ),
       deferredAppVersions,
     ),
-    deferredPaymentTypes,
+    deferredDirections,
   );
-  const methodChartTelemetry = applyPaymentTypeFilter(
-    applyAppVersionFilter(
-      applyAppRuntimeFilter(
-        applyDevicePlatformFilter(
-          applyMintFilter(hourFilteredTelemetry, deferredMints),
-          deferredDevicePlatforms,
-        ),
-        deferredAppRuntimes,
-      ),
-      deferredAppVersions,
-    ),
-    deferredPaymentTypes,
-  );
-  const paymentTypeChartTelemetry = applyAppVersionFilter(
-    applyAppRuntimeFilter(
-      applyDevicePlatformFilter(
-        applyMintFilter(
-          applyMethodFilter(hourFilteredTelemetry, deferredMethods),
-          deferredMints,
-        ),
-        deferredDevicePlatforms,
-      ),
-      deferredAppRuntimes,
-    ),
-    deferredAppVersions,
-  );
-  const mintChartTelemetry = applyPaymentTypeFilter(
-    applyAppVersionFilter(
-      applyAppRuntimeFilter(
-        applyDevicePlatformFilter(
-          applyMethodFilter(hourFilteredTelemetry, deferredMethods),
-          deferredDevicePlatforms,
-        ),
-        deferredAppRuntimes,
-      ),
-      deferredAppVersions,
-    ),
-    deferredPaymentTypes,
-  );
-  const devicePlatformChartTelemetry = applyPaymentTypeFilter(
-    applyAppVersionFilter(
-      applyAppRuntimeFilter(
-        applyMintFilter(
-          applyMethodFilter(hourFilteredTelemetry, deferredMethods),
-          deferredMints,
-        ),
-        deferredAppRuntimes,
-      ),
-      deferredAppVersions,
-    ),
-    deferredPaymentTypes,
-  );
-  const appRuntimeChartTelemetry = applyPaymentTypeFilter(
-    applyAppVersionFilter(
-      applyDevicePlatformFilter(
-        applyMintFilter(
-          applyMethodFilter(hourFilteredTelemetry, deferredMethods),
-          deferredMints,
-        ),
-        deferredDevicePlatforms,
-      ),
-      deferredAppVersions,
-    ),
-    deferredPaymentTypes,
-  );
-  const appVersionChartTelemetry = applyPaymentTypeFilter(
-    applyAppRuntimeFilter(
-      applyDevicePlatformFilter(
-        applyMintFilter(
-          applyMethodFilter(hourFilteredTelemetry, deferredMethods),
-          deferredMints,
-        ),
-        deferredDevicePlatforms,
-      ),
-      deferredAppRuntimes,
-    ),
-    deferredPaymentTypes,
-  );
-  const appHostChartTelemetry = applyPaymentTypeFilter(
+  const directionChartTelemetry = applyPaymentTypeFilter(
     applyAppVersionFilter(
       applyAppRuntimeFilter(
         applyDevicePlatformFilter(
@@ -1666,8 +1645,72 @@ export default function App() {
     ),
     deferredPaymentTypes,
   );
-  const filteredTelemetry = applyPaymentTypeFilter(
-    applyAppHostFilter(
+  const mintChartTelemetry = applyDirectionFilter(
+    applyPaymentTypeFilter(
+      applyAppVersionFilter(
+        applyAppRuntimeFilter(
+          applyDevicePlatformFilter(
+            applyMethodFilter(hourFilteredTelemetry, deferredMethods),
+            deferredDevicePlatforms,
+          ),
+          deferredAppRuntimes,
+        ),
+        deferredAppVersions,
+      ),
+      deferredPaymentTypes,
+    ),
+    deferredDirections,
+  );
+  const devicePlatformChartTelemetry = applyDirectionFilter(
+    applyPaymentTypeFilter(
+      applyAppVersionFilter(
+        applyAppRuntimeFilter(
+          applyMintFilter(
+            applyMethodFilter(hourFilteredTelemetry, deferredMethods),
+            deferredMints,
+          ),
+          deferredAppRuntimes,
+        ),
+        deferredAppVersions,
+      ),
+      deferredPaymentTypes,
+    ),
+    deferredDirections,
+  );
+  const appRuntimeChartTelemetry = applyDirectionFilter(
+    applyPaymentTypeFilter(
+      applyAppVersionFilter(
+        applyDevicePlatformFilter(
+          applyMintFilter(
+            applyMethodFilter(hourFilteredTelemetry, deferredMethods),
+            deferredMints,
+          ),
+          deferredDevicePlatforms,
+        ),
+        deferredAppVersions,
+      ),
+      deferredPaymentTypes,
+    ),
+    deferredDirections,
+  );
+  const appVersionChartTelemetry = applyDirectionFilter(
+    applyPaymentTypeFilter(
+      applyAppRuntimeFilter(
+        applyDevicePlatformFilter(
+          applyMintFilter(
+            applyMethodFilter(hourFilteredTelemetry, deferredMethods),
+            deferredMints,
+          ),
+          deferredDevicePlatforms,
+        ),
+        deferredAppRuntimes,
+      ),
+      deferredPaymentTypes,
+    ),
+    deferredDirections,
+  );
+  const appHostChartTelemetry = applyDirectionFilter(
+    applyPaymentTypeFilter(
       applyAppVersionFilter(
         applyAppRuntimeFilter(
           applyDevicePlatformFilter(
@@ -1681,9 +1724,31 @@ export default function App() {
         ),
         deferredAppVersions,
       ),
-      deferredAppHosts,
+      deferredPaymentTypes,
     ),
-    deferredPaymentTypes,
+    deferredDirections,
+  );
+  const filteredTelemetry = applyDirectionFilter(
+    applyPaymentTypeFilter(
+      applyAppHostFilter(
+        applyAppVersionFilter(
+          applyAppRuntimeFilter(
+            applyDevicePlatformFilter(
+              applyMintFilter(
+                applyMethodFilter(hourFilteredTelemetry, deferredMethods),
+                deferredMints,
+              ),
+              deferredDevicePlatforms,
+            ),
+            deferredAppRuntimes,
+          ),
+          deferredAppVersions,
+        ),
+        deferredAppHosts,
+      ),
+      deferredPaymentTypes,
+    ),
+    deferredDirections,
   );
   const dailySeries = buildDailySeries({
     date: deferredDate || null,
@@ -1700,6 +1765,7 @@ export default function App() {
   const appHostSeries = buildAppHostSeries(appHostChartTelemetry);
   const mintSeries = buildMintSeries(mintChartTelemetry);
   const methodSeries = buildMethodSeries(methodChartTelemetry);
+  const directionSeries = buildDirectionSeries(directionChartTelemetry);
   const paymentTypeSeries = buildPaymentTypeSeries(paymentTypeChartTelemetry);
   const totalEventCount = filteredTelemetry.length;
   const successCount = filteredTelemetry.filter(
@@ -1715,6 +1781,7 @@ export default function App() {
   const activeTimeBucketKey = deferredHour || deferredDate || null;
   const activeMintKeys = deferredMints;
   const activeMethods = deferredMethods;
+  const activeDirectionKeys = deferredDirections;
   const activePaymentTypeKeys = deferredPaymentTypes;
   const activeDevicePlatformKeys = deferredDevicePlatforms;
   const activeAppRuntimeKeys = deferredAppRuntimes;
@@ -1742,6 +1809,10 @@ export default function App() {
 
   function handleMethodChartClick(method: MethodFilter) {
     setSelectedMethods((current) => toggleSelection(current, method));
+  }
+
+  function handleDirectionChartClick(direction: string) {
+    setSelectedDirections((current) => toggleSelection(current, direction));
   }
 
   function handlePaymentTypeChartClick(paymentType: string) {
@@ -2062,6 +2133,7 @@ export default function App() {
     setSelectedHour("");
     setSelectedMints([]);
     setSelectedMethods([]);
+    setSelectedDirections([]);
     setSelectedPaymentTypes([]);
     setSelectedDevicePlatforms([]);
     setSelectedAppRuntimes([]);
@@ -2241,6 +2313,16 @@ export default function App() {
                 Method: {formatMethodLabel(selectedMethod)}
               </button>
             ))}
+            {selectedDirections.map((selectedDirection) => (
+              <button
+                className="active-filter-chip active-filter-chip-button"
+                key={`direction-${selectedDirection}`}
+                onClick={() => handleDirectionChartClick(selectedDirection)}
+                type="button"
+              >
+                Direction: {formatDirectionLabel(selectedDirection)}
+              </button>
+            ))}
             {selectedPaymentTypes.map((selectedPaymentType) => (
               <button
                 className="active-filter-chip active-filter-chip-button"
@@ -2408,6 +2490,28 @@ export default function App() {
                 activeMethods={activeMethods}
                 onMethodClick={handleMethodChartClick}
                 series={methodSeries}
+              />
+            </div>
+          </div>
+        </article>
+
+        <article className="panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Direction</p>
+            </div>
+          </div>
+
+          <div className="chart-shell">
+            <div className="chart-scroll-wrap">
+              <BreakdownChart
+                activeKeys={activeDirectionKeys}
+                chartId="direction"
+                emptyDescription="The current filter combination has no payment outcome events."
+                emptyTitle="No direction data in the selected range"
+                label="direction"
+                onItemClick={handleDirectionChartClick}
+                series={directionSeries}
               />
             </div>
           </div>
